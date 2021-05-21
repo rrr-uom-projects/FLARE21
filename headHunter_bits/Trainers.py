@@ -138,76 +138,84 @@ class headHunter_trainer:
             for batch_idx, sample in enumerate(self.val_loader):
                 self.logger.info(f'Validation iteration {batch_idx + 1}')
                 ct_im = sample['ct_im'].type(torch.HalfTensor) 
-                targets = sample['targets'].type(torch.FloatTensor)
+                targets = sample['targets'].numpy()
                 h_targets = sample['h_targets'].type(torch.FloatTensor)
                 
                 # send tensors to GPU
                 ct_im = ct_im.to(self.device)
                 h_targets = h_targets.to(self.device)
-                targets = targets.to(self.device)
+                #targets = targets.to(self.device)
                 
                 output, loss = self._forward_pass(ct_im, h_targets)
                 val_losses.update(loss.item(), self._batch_size(ct_im))
-                '''
-                if (batch_idx == 0) and ((self.num_epoch < 100) or (self.num_epoch < 500 and not self.num_epoch%10) or (not self.num_epoch%100)):
-                    # plot im
+                
+                if (batch_idx == 0) and ((self.num_epoch < 50) or (self.num_epoch < 100 and not self.num_epoch%5) or (self.num_epoch < 500 and not self.num_epoch%25) or (not self.num_epoch%100)):                   
+                    # transferring between the gpu and cpu with .cpu() is really inefficient
+                    # -> only transfer slices for plotting not entire volumes (& only plot every so often ... ^ what this mess up here is doing)
+                    # plot im - $tensorboard --logdir=MODEL_DIRECTORY --port=6006 --bind_all --samples_per_plugin="images=0"
                     targets = targets[which_to_show]
-                    h_targets= h_targets.cpu().numpy()[which_to_show]
-                    output = output.cpu().numpy()[which_to_show]
-                    #pred = np.unravel_index(output[0].argmax(), output[0].shape)
-                    #print(f'prediction: {pred}, map value: {output[0,pred[0],pred[1],pred[2]]}')
-                    # CoM of Parotids and Brainstem plots
-                    # axial plot
-                    fig, (ax0, ax1, ax2) = plt.subplots(1, 3, figsize=(15, 5), tight_layout=True)
-                    ax_slice = ct_im.cpu().numpy()[which_to_show, 2, int(target[0])]              # <-- batch_num, contrast_channel, ax_slice
-                    ax0.imshow(ax_slice, aspect=1.0, cmap='Greys_r')
-                    ax_slice = h_target[0, int(target[0])]
-                    ax1.imshow(ax_slice, aspect=1.0, cmap='nipy_spectral', vmin=0, vmax=max(self.epsilon,np.max(h_target)))
-                    ax_slice = output[0, int(target[0])]
-                    ax2.imshow(ax_slice, aspect=1.0, cmap='nipy_spectral', vmin=0, vmax=max(self.epsilon,np.max(output)))
-                    self.writer.add_figure(tag='Val_pred_ax', figure=fig, global_step=self.num_epoch)
-                    fig.savefig(os.path.join(self.fig_dir, 'Val_pred_ax_'+str(self.num_epoch)+'.png'))
-                    # sagittal plot
-                    fig2, (ax3, ax4, ax5) = plt.subplots(1, 3, figsize=(10, 3), tight_layout=True)
-                    sag_slice = ct_im.cpu().numpy()[which_to_show,2,:,:,int(target[2])]
-                    ax3.imshow(sag_slice, aspect=2.0, cmap='Greys_r')
-                    sag_slice = h_target[0, :, :, int(target[2])]
-                    ax4.imshow(sag_slice, aspect=2.0, cmap='nipy_spectral', vmin=0, vmax=max(self.epsilon,np.max(h_target)))
-                    sag_slice = output[0, :, :, int(target[2])]
-                    ax5.imshow(sag_slice, aspect=2.0, cmap='nipy_spectral', vmin=0, vmax=max(self.epsilon,np.max(output)))
-                    self.writer.add_figure(tag='Val_pred_sag', figure=fig2, global_step=self.num_epoch)
-                    #fig2.savefig(os.path.join(self.fig_dir, 'Val_pred_sag_'+str(self.num_epoch)+'.png'))
-                    # Parotid figures
-                    # axial plot - lpar
-                    fig, (ax0, ax1, ax2) = plt.subplots(1, 3, figsize=(15, 5), tight_layout=True)
-                    ax_slice = ct_im.cpu().numpy()[which_to_show, 2, int(target[0,0])]              # <-- batch_num, contrast_channel, ax_slice (loc_idx, axial_idx)
-                    ax0.imshow(ax_slice, aspect=1.0, cmap='Greys_r')
-                    ax_slice = h_target[0, int(target[0,0])]
-                    ax1.imshow(ax_slice, aspect=1.0, cmap='nipy_spectral', vmin=0, vmax=max(self.epsilon,np.max(h_target)))
-                    ax_slice = output[0, int(target[0,0])]
-                    ax2.imshow(ax_slice, aspect=1.0, cmap='nipy_spectral', vmin=0, vmax=max(self.epsilon,np.max(output)))
-                    self.writer.add_figure(tag='Val_lpar_pred_ax', figure=fig, global_step=self.num_epoch)
-                    fig.savefig(os.path.join(self.fig_dir, 'Val_lpar_pred_ax_'+str(self.num_epoch)+'.png'))
-                    
-                    # axial plot - rpar
-                    fig2, (ax3, ax4, ax5) = plt.subplots(1, 3, figsize=(15, 5), tight_layout=True)
-                    ax_slice = ct_im.cpu().numpy()[which_to_show, 2, int(target[1,0])]              # <-- batch_num, contrast_channel, ax_slice (loc_idx, axial_idx)
-                    ax3.imshow(ax_slice, aspect=1.0, cmap='Greys_r')
-                    ax_slice = h_target[1, int(target[1,0])]
-                    ax4.imshow(ax_slice, aspect=1.0, cmap='nipy_spectral', vmin=0, vmax=max(self.epsilon,np.max(h_target)))
-                    ax_slice = output[1, int(target[1,0])]
-                    ax5.imshow(ax_slice, aspect=1.0, cmap='nipy_spectral', vmin=0, vmax=max(self.epsilon,np.max(output)))
-                    self.writer.add_figure(tag='Val_rpar_pred_ax', figure=fig2, global_step=self.num_epoch)
-                    fig2.savefig(os.path.join(self.fig_dir, 'Val_rpar_pred_ax_'+str(self.num_epoch)+'.png'))
-                '''
+                    h_targets= h_targets[which_to_show].cpu().numpy()
+                    output = output[which_to_show].cpu().numpy()
+                    if (h_targets==-235).any():
+                        pass    # could do for each, come back to
+                    else:
+                        # CoM of targets plots
+                        # coronal view of the Liver plot
+                        tdx = 0
+                        fig, (ax0, ax1, ax2) = plt.subplots(1, 3, figsize=(15, 5), tight_layout=True)
+                        coronal_slice = ct_im[which_to_show, 1, :, int(round(targets[tdx, 1]))].cpu().numpy().astype(float)     # <-- batch_num, contrast_channel, ax_dim(:), coronal_slice
+                        ax0.imshow(np.flip(coronal_slice, axis=0), aspect=2.5, cmap='Greys_r', vmin=0, vmax=1)
+                        coronal_slice = h_targets[tdx, :, int(round(targets[tdx, 1]))].astype(float)
+                        ax1.imshow(np.flip(coronal_slice, axis=0), aspect=2.5, cmap='nipy_spectral', vmin=0, vmax=max(self.epsilon, 1))
+                        coronal_slice = output[tdx, :, int(round(targets[tdx, 1]))].astype(float)
+                        ax2.imshow(np.flip(coronal_slice, axis=0), aspect=2.5, cmap='nipy_spectral', vmin=0, vmax=max(self.epsilon, np.max(output)))
+                        self.writer.add_figure(tag='Liver_pred', figure=fig, global_step=self.num_epoch)
+                        fig.savefig(os.path.join(self.fig_dir, 'Liver_pred_'+str(self.num_epoch)+'.png'))
+                        
+                        # axial view of the kidneys (centre kidney L for simplicity)
+                        tdx = 1 # & 2
+                        fig2, (ax3, ax4, ax5) = plt.subplots(1, 3, figsize=(15, 5), tight_layout=True)
+                        ax_slice = ct_im[which_to_show, 0, int(round(targets[tdx, 0]))].cpu().numpy().astype(float)             # <-- batch_num, contrast_channel, ax_slice
+                        ax3.imshow(ax_slice, aspect=1.0, cmap='Greys_r')
+                        ax_slice = (h_targets[tdx, int(round(targets[tdx, 0]))] + h_targets[tdx+1, int(round(targets[tdx+1, 0]))]).astype(float)
+                        ax4.imshow(ax_slice, aspect=1.0, cmap='nipy_spectral', vmin=0, vmax=1)
+                        ax_slice = (output[tdx, int(round(targets[tdx, 0]))] + output[tdx+1, int(round(targets[tdx+1, 0]))]).astype(float)
+                        ax5.imshow(ax_slice, aspect=1.0, cmap='nipy_spectral', vmin=0, vmax=max(self.epsilon, np.max(output)))
+                        self.writer.add_figure(tag='Kidneys_pred', figure=fig2, global_step=self.num_epoch)
+                        fig2.savefig(os.path.join(self.fig_dir, 'Kidneys_pred_'+str(self.num_epoch)+'.png'))
+                        
+                        # sagittal view of the spleen
+                        tdx = 3
+                        fig3, (ax6, ax7, ax8) = plt.subplots(1, 3, figsize=(15, 5), tight_layout=True)
+                        sag_slice = ct_im[which_to_show, 0, :, :, int(round(targets[tdx, 2]))].cpu().numpy().astype(float)            # <-- batch_num, contrast_channel, sag_slice
+                        ax6.imshow(np.flip(sag_slice, axis=0), aspect=2.5, cmap='Greys_r')
+                        sag_slice = h_targets[tdx, :, :, int(round(targets[tdx, 2]))].astype(float)
+                        ax7.imshow(np.flip(sag_slice, axis=0), aspect=2.5, cmap='nipy_spectral', vmin=0, vmax=1)
+                        sag_slice = output[tdx, :, :, int(round(targets[tdx, 2]))].astype(float)
+                        ax8.imshow(np.flip(sag_slice, axis=0), aspect=2.5, cmap='nipy_spectral', vmin=0, vmax=max(self.epsilon, np.max(output)))
+                        self.writer.add_figure(tag='Spleen_pred', figure=fig3, global_step=self.num_epoch)
+                        fig3.savefig(os.path.join(self.fig_dir, 'Spleen_pred_'+str(self.num_epoch)+'.png'))
+                        
+                        # axial view of the pancreas
+                        tdx = 4
+                        fig4, (ax9, ax10, ax11) = plt.subplots(1, 3, figsize=(15, 5), tight_layout=True)
+                        ax_slice = ct_im[which_to_show, 0, int(round(targets[tdx, 0]))].cpu().numpy().astype(float)             # <-- batch_num, contrast_channel, ax_slice
+                        ax9.imshow(ax_slice, aspect=1.0, cmap='Greys_r')
+                        ax_slice = h_targets[tdx, int(round(targets[tdx, 0]))].astype(float)
+                        ax10.imshow(ax_slice, aspect=1.0, cmap='nipy_spectral', vmin=0, vmax=1)
+                        ax_slice = output[tdx, int(round(targets[tdx, 0]))].astype(float)
+                        ax11.imshow(ax_slice, aspect=1.0, cmap='nipy_spectral', vmin=0, vmax=max(self.epsilon, np.max(output)))
+                        self.writer.add_figure(tag='Pancreas_pred', figure=fig4, global_step=self.num_epoch)
+                        fig4.savefig(os.path.join(self.fig_dir, 'Pancreas_pred_'+str(self.num_epoch)+'.png'))
+                
             self._log_stats('val', val_losses.avg)
             self.logger.info(f'Validation finished. Loss: {val_losses.avg}')
             return val_losses.avg
 
-    def mse_loss_missing_labels(self, output, targets):
+    def mse_loss_missing_labels(self, output, h_targets):
         # Missing labels shown with -235 errcode
-        mask = (targets == -235)
-        loss = ((output[~mask] - targets[~mask])**2).mean()
+        mask = (h_targets == -235)
+        loss = ((output[~mask] - h_targets[~mask])**2).mean()
         return loss
 
     def _forward_pass(self, ct_im, h_targets):
