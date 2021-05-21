@@ -50,10 +50,10 @@ def main():
     # Log the number of learnable parameters
     logger.info(f'Number of learnable params {get_number_of_learnable_parameters(model)}')
     
-    train_BS = int(6 * args.GPUs)
+    train_BS = int(8 * args.GPUs)
     val_BS = int(6 * args.GPUs)
     train_workers = int(8)
-    val_workers = int(4)
+    val_workers = int(3)
 
     # allocate ims to train, val and test
     dataset_size = len(sorted(getFiles(imagedir)))
@@ -91,7 +91,7 @@ class headHunter_Dataset(data.Dataset):
         self.heatmap = heatmap
         self.shifts = shift_augment
         self.flips = flip_augment
-        self.gaussDist = norm(scale=10)
+        self.gaussDist = norm(scale=15)
 
     def __getitem__(self, idx):
         if torch.is_tensor(idx):
@@ -124,10 +124,10 @@ class headHunter_Dataset(data.Dataset):
                     #target = np.flip(target, axis=0).copy()    ## <-- special case for the parotids!
     
         # perform window-levelling here, create 3 channels
-        ct_im3 = np.zeros(shape=(3, ct_im.shape[0], ct_im.shape[1], ct_im.shape[2]))
-        ct_im3[0] = windowLevelNormalize(ct_im, level=1064, window=350)
-        ct_im3[1] = windowLevelNormalize(ct_im, level=1064, window=80)
-        ct_im3[2] = windowLevelNormalize(ct_im, level=1624, window=2800)
+        ct_im3 = np.zeros(shape=(3,) + ct_im.shape)
+        ct_im3[0] = windowLevelNormalize(ct_im, level=50, window=400)   # abdomen "soft tissues"
+        ct_im3[1] = windowLevelNormalize(ct_im, level=30, window=150)   # liver
+        ct_im3[2] = windowLevelNormalize(ct_im, level=400, window=1800) # spine bone level
         
         # now convert target to heatmap target
         if self.heatmap:
