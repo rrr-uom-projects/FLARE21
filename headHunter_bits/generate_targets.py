@@ -43,8 +43,8 @@ for pdx, fname in enumerate(sorted(getFiles(maskdir))):
             binary_oar_mask[:,:,:256] = 0               # blank first kidney
             CoM_R = get_CoM(binary_oar_mask)            # find second kidney
             print(f"{oar_name.replace('s',' L')} CoM: {CoM_L}, {oar_name.replace('s',' R')} CoM: {CoM_R}")
-            CoM_targets[pdx, 2] = CoM_L
-            CoM_targets[pdx, 3] = CoM_R
+            CoM_targets[pdx, oar_idx] = CoM_L
+            CoM_targets[pdx, oar_idx+1] = CoM_R
         else:
             CoM = get_CoM(binary_oar_mask)
             print(f'{oar_name}CoM: {CoM}')
@@ -52,15 +52,13 @@ for pdx, fname in enumerate(sorted(getFiles(maskdir))):
                 CoM_targets[pdx, oar_idx] = CoM
             else: 
                 CoM_targets[pdx, oar_idx+1] = CoM
-        '''
         # rough sanity checks
-        if CoM_targets[pdx, 0, 1] < CoM_targets[pdx, 1, 1]:
-            print("Liver behind kidney!")
-            exit()
+        #if CoM_targets[pdx, 0, 1] < CoM_targets[pdx, 1, 1]:
+            #print("Liver behind kidney!")
+            #exit()
         if CoM_targets[pdx, 0, 2] < 256:
             print("Liver on the left!")
             exit()
-        '''
             
     np.save(os.path.join(targetdir, f"{fname.replace('.nii.gz','')}_targets.npy"), CoM_targets[pdx])
 np.save(os.path.join("/data/FLARE21/training_data/", f"all_targets.npy"), CoM_targets)
