@@ -76,14 +76,16 @@ class headHunter_trainer:
         for batch_idx, sample in enumerate(train_loader):
             self.logger.info(f'Training iteration {self.num_iterations}. Batch {batch_idx + 1}. Epoch [{self.num_epoch + 1}/{self.max_num_epochs}]')
             ct_im = sample['ct_im'].type(torch.HalfTensor)
-            targets = sample['targets'].numpy()
-            h_targets = sample['h_targets'].type(torch.FloatTensor) 
+            targets = sample['targets'].type(torch.FloatTensor)
+            h_targets = sample['h_targets'].type(torch.FloatTensor)
+
             # send tensors to GPU
             ct_im = ct_im.to(self.device)
             h_targets = h_targets.to(self.device)
+            targets = targets.to(self.device)
             
             # forward
-            output, loss = self._forward_pass(ct_im, h_targets)
+            output, loss = self._forward_pass(ct_im, h_targets, targets)
             train_losses.update(loss.item(), self._batch_size(ct_im))
             
             # compute gradients and update parameters
@@ -138,15 +140,16 @@ class headHunter_trainer:
             for batch_idx, sample in enumerate(self.val_loader):
                 self.logger.info(f'Validation iteration {batch_idx + 1}')
                 ct_im = sample['ct_im'].type(torch.HalfTensor) 
-                targets = sample['targets'].numpy()
+                cu_targets = sample['targets'].type(torch.FloatTensor)
+                targets = torch.clone(cu_targets).numpy()
                 h_targets = sample['h_targets'].type(torch.FloatTensor)
                 
                 # send tensors to GPU
                 ct_im = ct_im.to(self.device)
                 h_targets = h_targets.to(self.device)
-                #targets = targets.to(self.device)
+                cu_targets = cu_targets.to(self.device)
                 
-                output, loss = self._forward_pass(ct_im, h_targets)
+                output, loss = self._forward_pass(ct_im, h_targets, cu_targets)
                 val_losses.update(loss.item(), self._batch_size(ct_im))
                 
                 if (batch_idx == 0) and ((self.num_epoch < 50) or (self.num_epoch < 100 and not self.num_epoch%5) or (self.num_epoch < 500 and not self.num_epoch%25) or (not self.num_epoch%100)):                   
@@ -163,7 +166,7 @@ class headHunter_trainer:
                         # coronal view of the Liver plot
                         tdx = 0
                         fig, (ax0, ax1, ax2) = plt.subplots(1, 3, figsize=(15, 5), tight_layout=True)
-                        coronal_slice = ct_im[which_to_show, 1, :, int(round(targets[tdx, 1]))].cpu().numpy().astype(float)     # <-- batch_num, contrast_channel, ax_dim(:), coronal_slice
+                        coronal_slice = ct_im[which_to_show, 0, :, int(round(targets[tdx, 1]))].cpu().numpy().astype(float)     # <-- batch_num, contrast_channel, ax_dim(:), coronal_slice
                         ax0.imshow(np.flip(coronal_slice, axis=0), aspect=2.5, cmap='Greys_r', vmin=0, vmax=1)
                         coronal_slice = h_targets[tdx, :, int(round(targets[tdx, 1]))].astype(float)
                         ax1.imshow(np.flip(coronal_slice, axis=0), aspect=2.5, cmap='nipy_spectral', vmin=0, vmax=max(self.epsilon, 1))
@@ -218,13 +221,32 @@ class headHunter_trainer:
         loss = ((output[~mask] - h_targets[~mask])**2).mean()
         return loss
 
-    def _forward_pass(self, ct_im, h_targets):
+    def p2p_loss_missing_labels(self, output, targets):
+        mask = (targets == -235)
+        pred_vox = torch.stack([torch.stack([self.unravel_indices(torch.argmax(output[bdx, tdx]), output.size()[2:]) for tdx in range(output.size()[1])]) for bdx in range(output.size()[0])])
+        loss = ((pred_vox[~mask] - targets[~mask])**2).sum()    # should be sqrt for euclidean distance, but no difference in terms of loss backprop
+        return loss
+
+    '''
+    def unravel_indices(self, indices, shape):
+        coord=[]
+        for dim in reversed(shape):
+            coord.append(indices % dim)
+            indices = indices // dim
+        coord = torch.stack(coord[::-1], dim=-1)
+        return coord
+    '''
+
+    def _forward_pass(self, ct_im, h_targets, targets):
         with torch.cuda.amp.autocast():
             # forward pass
             output = self.model(ct_im)
-            # MSE loss contribution - unchanged for >1 targets
-            loss = self.mse_loss_missing_labels(output, h_targets)
-            return output, loss
+            # MSE loss contribution
+            mse_loss = self.mse_loss_missing_labels(output, h_targets)
+            # p2p loss contribution
+            #p2p_loss = self.p2p_loss_missing_labels(output, targets)
+            #loss = mse_loss + p2p_loss
+            return output, mse_loss
 
     def _is_best_eval_score(self, eval_score):
         if self.eval_score_higher_is_better:
