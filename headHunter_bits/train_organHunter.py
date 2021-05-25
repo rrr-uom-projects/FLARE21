@@ -13,7 +13,7 @@ import random
 import os
 import argparse as ap
 
-from models import headHunter
+from models import deeperHunter
 from Trainers import headHunter_trainer
 from utils import k_fold_split_train_val_test, get_logger, get_number_of_learnable_parameters, getFiles, windowLevelNormalize
 
@@ -38,7 +38,7 @@ def main():
     logger = get_logger('organHunter_Training')
 
     # Create the model
-    model = headHunter(filter_factor=2, targets=5, in_channels=3)
+    model = deeperHunter(filter_factor=2, targets=5, in_channels=1, p_drop=0.25)
 
     for param in model.parameters():
         param.requires_grad = True
@@ -50,13 +50,13 @@ def main():
     # Log the number of learnable parameters
     logger.info(f'Number of learnable params {get_number_of_learnable_parameters(model)}')
     
-    train_BS = int(8 * args.GPUs)
-    val_BS = int(6 * args.GPUs)
-    train_workers = int(8)
+    train_BS = int(4 * args.GPUs)
+    val_BS = int(3 * args.GPUs)
+    train_workers = int(4)
     val_workers = int(3)
 
     # allocate ims to train, val and test
-    dataset_size = len(sorted(getFiles(imagedir)))
+    dataset_size = 92 #len(sorted(getFiles(imagedir))) # 64
     train_inds, val_inds, test_inds = k_fold_split_train_val_test(dataset_size, fold_num=args.fold_num, seed=230597)
 
     # Create them dataloaders
@@ -70,9 +70,6 @@ def main():
 
     # Create learning rate adjustment strategy
     lr_scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=175, verbose=True)
-
-    # Parallelize model
-    model = nn.DataParallel(model)
     
     # Create model trainer
     trainer = headHunter_trainer(model=model, optimizer=optimizer, lr_scheduler=lr_scheduler, device=device, train_loader=train_loader, 
@@ -91,7 +88,7 @@ class headHunter_Dataset(data.Dataset):
         self.heatmap = heatmap
         self.shifts = shift_augment
         self.flips = flip_augment
-        self.gaussDist = norm(scale=15)
+        self.gaussDist = norm(scale=25)
 
     def __getitem__(self, idx):
         if torch.is_tensor(idx):
@@ -124,14 +121,17 @@ class headHunter_Dataset(data.Dataset):
                     #target = np.flip(target, axis=0).copy()    ## <-- special case for the parotids!
     
         # perform window-levelling here, create 3 channels
-        ct_im3 = np.zeros(shape=(3,) + ct_im.shape)
-        ct_im3[0] = windowLevelNormalize(ct_im, level=50, window=400)   # abdomen "soft tissues"
-        ct_im3[1] = windowLevelNormalize(ct_im, level=30, window=150)   # liver
-        ct_im3[2] = windowLevelNormalize(ct_im, level=400, window=1800) # spine bone level
-        
+        #ct_im3 = np.zeros(shape=(3,) + ct_im.shape)
+        #ct_im3[0] = windowLevelNormalize(ct_im, level=50, window=400)   # abdomen "soft tissues"
+        #ct_im3[1] = windowLevelNormalize(ct_im, level=30, window=150)   # liver
+        #ct_im3[2] = windowLevelNormalize(ct_im, level=400, window=1800) # spine bone level
+
+        # start with a single soft tissue channel
+        ct_im = windowLevelNormalize(ct_im, level=50, window=400)[np.newaxis]   # abdomen "soft tissues"
+
         # now convert target to heatmap target
         if self.heatmap:
-            h_targets = np.ones(shape=(n_targets,) + ct_im.shape) # organise channels first
+            h_targets = np.ones(shape=(n_targets,) + ct_im.shape[1:]) # organise channels first
             for tdx in range(n_targets):
                 target = targets[tdx]
                 if (target == -235).any():
@@ -142,7 +142,7 @@ class headHunter_Dataset(data.Dataset):
                 h_targets[tdx] = dist_xfm(h_targets[tdx], sampling=spacing)
                 h_targets[tdx] = self.gaussDist.pdf(h_targets[tdx])
                 h_targets[tdx] /= np.max(h_targets[tdx])
-            return {'ct_im': ct_im3, 'targets': targets, 'h_targets': h_targets}
+            return {'ct_im': ct_im, 'targets': targets, 'h_targets': h_targets}
         raise NotImplementedError
         return {'ct_im': ct_im, 'target': targets}
         
