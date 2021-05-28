@@ -38,7 +38,7 @@ def main():
     logger = get_logger('organHunter_Training')
 
     # Create the model
-    model = deeperHunter(filter_factor=2, targets=5, in_channels=1, p_drop=0.25)
+    model = deeperHunter(filter_factor=2, targets=5, in_channels=1, p_drop=0)
 
     for param in model.parameters():
         param.requires_grad = True
@@ -56,7 +56,7 @@ def main():
     val_workers = int(3)
 
     # allocate ims to train, val and test
-    dataset_size = 92 #len(sorted(getFiles(imagedir))) # 64
+    dataset_size = 92 #len(sorted(getFiles(imagedir)))
     train_inds, val_inds, test_inds = k_fold_split_train_val_test(dataset_size, fold_num=args.fold_num, seed=230597)
 
     # Create them dataloaders
@@ -104,7 +104,7 @@ class headHunter_Dataset(data.Dataset):
                 # find shift values
                 cc_shift, ap_shift, lr_shift = random.randint(-2,2), random.randint(-4,4), random.randint(-4,4)
                 # pad for shifting into
-                ct_im = np.pad(ct_im, pad_width=((2,2),(4,4),(4,4)), mode='constant')
+                ct_im = np.pad(ct_im, pad_width=((2,2),(4,4),(4,4)), mode='edge')
                 # crop to complete shift
                 ct_im = ct_im[2+cc_shift:66+cc_shift, 4+ap_shift:132+ap_shift, 4+lr_shift:132+lr_shift]
                 # nudge the target to match the shift -> will work with single targets and multi-targets (reason for the '...,')
