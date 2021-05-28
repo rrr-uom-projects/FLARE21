@@ -25,6 +25,7 @@ def split_kidneys(mask):
 sizes_scaled = np.zeros((361,3))
 spacings_scaled = np.zeros((361,3))
 labels_present = np.empty(shape=(361,5), dtype=bool)
+label_freq = np.zeros((6))
 for pdx, fname in enumerate(sorted(getFiles(imdir))):
     # load files
     print(f"Processing {fname.replace('_0000.nii.gz','')}")
@@ -66,12 +67,16 @@ for pdx, fname in enumerate(sorted(getFiles(imdir))):
     # output
     #np.save(os.path.join(out_imdir, fname.replace('_0000.nii.gz','.npy')), im)
     assert((im == np.load(os.path.join(out_imdir, fname.replace('_0000.nii.gz','.npy')))).all())
-    np.save(os.path.join(out_maskdir, fname.replace('_0000.nii.gz','.npy')), im)
+    np.save(os.path.join(out_maskdir, fname.replace('_0000.nii.gz','.npy')), mask)
 
     # extras
     spacings_scaled[pdx] = spacing
+    for odx in range(6):
+        label_freq[odx] += (mask==odx).sum()
 
 # save newly scaled spacings and sizes
 #np.save(os.path.join("/data/FLARE21/training_data/", "spacings_scaled.npy"), spacings_scaled)
 assert((spacings_scaled == np.load(os.path.join("/data/FLARE21/training_data/", "spacings_scaled.npy"))).all())
 np.save("/data/FLARE21/training_data/labels_present.npy", labels_present)
+print(label_freq)
+np.save("/data/FLARE21/training_data/label_freq.npy", label_freq)
