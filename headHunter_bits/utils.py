@@ -101,9 +101,13 @@ def str2bool(v):
 def k_fold_split_train_val_test(dataset_size, fold_num, seed=230597):
     k = int(fold_num-1)
     train_ims, val_ims, test_ims = round(dataset_size*0.7), round(dataset_size*0.1), round(dataset_size*0.2)
-    if dataset_size - train_ims+val_ims+test_ims == 1:
+    if dataset_size - (train_ims+val_ims+test_ims) == 1:
         val_ims += 1 # put the extra into val set
-    assert(train_ims+val_ims+test_ims == dataset_size)
+    try:
+        assert(train_ims+val_ims+test_ims == dataset_size)
+    except AssertionError:
+        print("Check the k fold data splitting, something's dodgy...")
+        exit(1)
     train_inds, val_inds, test_inds = [], [], []
     # initial shuffle
     np.random.seed(seed)
