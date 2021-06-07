@@ -7,8 +7,6 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 import torch.utils.data as data
 from torch.utils.data import DataLoader
 import numpy as np
-from scipy.stats import norm
-from scipy.ndimage import distance_transform_edt as dist_xfm
 import random
 import os
 import argparse as ap
