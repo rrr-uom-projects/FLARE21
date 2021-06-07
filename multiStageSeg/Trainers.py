@@ -8,6 +8,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import utils
 import time
+from scipy.ndimage import center_of_mass
 
 def exp_log_loss(prediction, mask, ignore_index, device='cuda'):
     """
@@ -36,7 +37,7 @@ def exp_log_loss(prediction, mask, ignore_index, device='cuda'):
     dice_loss = torch.mean(torch.pow(torch.clamp(-torch.log(dice), min=1e-6), gamma))
 
     # XE loss
-    label_freq = np.array([20,10,10,10,10,10])   # background, liver, kidney L, kidney R, spleen, pancreas
+    label_freq = np.array([358074923, 14152955, 1698684, 1643118,  2153875, 812381])   # background, liver, kidney L, kidney R, spleen, pancreas
     
     class_weights = np.power(np.full((num_classes), label_freq.sum()) / label_freq, 0.5)
     prediction = F.log_softmax(prediction, dim=1)
@@ -189,66 +190,67 @@ class roughSegmenter_trainer:
                 output, loss = self._forward_pass(ct_im, mask, ignore_index)
                 val_losses.update(loss.item(), self._batch_size(ct_im))
                 
-                # TODO sort this plotting for seg, cba at the moment
-                # should just be renaming variables
-                ''' 
                 if (batch_idx == 0) and ((self.num_epoch < 50) or (self.num_epoch < 100 and not self.num_epoch%5) or (self.num_epoch < 500 and not self.num_epoch%25) or (not self.num_epoch%100)):                   
                     # transferring between the gpu and cpu with .cpu() is really inefficient
                     # -> only transfer slices for plotting not entire volumes (& only plot every so often ... ^ what this mess up here is doing)
-                    # plot im - $tensorboard --logdir=MODEL_DIRECTORY --port=6006 --bind_all --samples_per_plugin="images=0"
-                    targets = targets[which_to_show]
-                    h_targets= h_targets[which_to_show].cpu().numpy()
-                    output = output[which_to_show].cpu().numpy()
-                    
+                    # plot ims -> - $tensorboard --logdir=MODEL_DIRECTORY --port=6006 --bind_all --samples_per_plugin="images=0"
+
+                    # unfortunately have to transfer entire volumes here, needs a np array to use scipy's center_of_mass
+                    mask = torch.argmax(mask, dim=4)[which_to_show].cpu().numpy()
+                    output = torch.argmax(output, dim=1)[which_to_show].cpu().numpy()
+
                     # CoM of targets plots
                     # coronal view of the Liver plot
-                    tdx = 0
+                    sdx = 0
+                    coords = self.find_coords(mask, sdx)
                     fig, (ax0, ax1, ax2) = plt.subplots(1, 3, figsize=(15, 5), tight_layout=True)
-                    coronal_slice = ct_im[which_to_show, 0, :, int(round(targets[tdx, 1]))].cpu().numpy().astype(float)     # <-- batch_num, contrast_channel, ax_dim(:), coronal_slice
+                    coronal_slice = ct_im[which_to_show, 0, :, coords[1]].cpu().numpy().astype(float)     # <-- batch_num, contrast_channel, ax_dim(:), coronal_slice
                     ax0.imshow(np.flip(coronal_slice, axis=0), aspect=2.5, cmap='Greys_r', vmin=0, vmax=1)
-                    coronal_slice = h_targets[tdx, :, int(round(targets[tdx, 1]))].astype(float)
-                    ax1.imshow(np.flip(coronal_slice, axis=0), aspect=2.5, cmap='nipy_spectral', vmin=0, vmax=max(self.epsilon, 1))
-                    coronal_slice = output[tdx, :, int(round(targets[tdx, 1]))].astype(float)
-                    ax2.imshow(np.flip(coronal_slice, axis=0), aspect=2.5, cmap='nipy_spectral', vmin=0, vmax=max(self.epsilon, np.max(output)))
+                    coronal_slice = mask[:, coords[1]].astype(float)
+                    ax1.imshow(np.flip(coronal_slice, axis=0), aspect=2.5, cmap='nipy_spectral', vmin=0, vmax=5)
+                    coronal_slice = output[:, coords[1]].astype(float)
+                    ax2.imshow(np.flip(coronal_slice, axis=0), aspect=2.5, cmap='nipy_spectral', vmin=0, vmax=5)
                     self.writer.add_figure(tag='Liver_pred', figure=fig, global_step=self.num_epoch)
                     fig.savefig(os.path.join(self.fig_dir, 'Liver_pred_'+str(self.num_epoch)+'.png'))
                     
                     # axial view of the kidneys (centre kidney L for simplicity)
-                    tdx = 1 # & 2
+                    sdx = 1
+                    coords = self.find_coords(mask, sdx, 2)
                     fig2, (ax3, ax4, ax5) = plt.subplots(1, 3, figsize=(15, 5), tight_layout=True)
-                    ax_slice = ct_im[which_to_show, 0, int(round(targets[tdx, 0]))].cpu().numpy().astype(float)             # <-- batch_num, contrast_channel, ax_slice
+                    ax_slice = ct_im[which_to_show, 0, coords[0]].cpu().numpy().astype(float)             # <-- batch_num, contrast_channel, ax_slice
                     ax3.imshow(ax_slice, aspect=1.0, cmap='Greys_r')
-                    ax_slice = (h_targets[tdx, int(round(targets[tdx, 0]))] + h_targets[tdx+1, int(round(targets[tdx+1, 0]))]).astype(float)
-                    ax4.imshow(ax_slice, aspect=1.0, cmap='nipy_spectral', vmin=0, vmax=1)
-                    ax_slice = (output[tdx, int(round(targets[tdx, 0]))] + output[tdx+1, int(round(targets[tdx+1, 0]))]).astype(float)
-                    ax5.imshow(ax_slice, aspect=1.0, cmap='nipy_spectral', vmin=0, vmax=max(self.epsilon, np.max(output)))
+                    ax_slice = mask[coords[0]].astype(float)
+                    ax4.imshow(ax_slice, aspect=1.0, cmap='nipy_spectral', vmin=0, vmax=5)
+                    ax_slice = output[coords[0]].astype(float)
+                    ax5.imshow(ax_slice, aspect=1.0, cmap='nipy_spectral', vmin=0, vmax=5)
                     self.writer.add_figure(tag='Kidneys_pred', figure=fig2, global_step=self.num_epoch)
                     fig2.savefig(os.path.join(self.fig_dir, 'Kidneys_pred_'+str(self.num_epoch)+'.png'))
                     
                     # sagittal view of the spleen
-                    tdx = 3
+                    sdx = 3
+                    coords = self.find_coords(mask, sdx)
                     fig3, (ax6, ax7, ax8) = plt.subplots(1, 3, figsize=(15, 5), tight_layout=True)
-                    sag_slice = ct_im[which_to_show, 0, :, :, int(round(targets[tdx, 2]))].cpu().numpy().astype(float)            # <-- batch_num, contrast_channel, sag_slice
+                    sag_slice = ct_im[which_to_show, 0, :, :, coords[2]].cpu().numpy().astype(float)            # <-- batch_num, contrast_channel, sag_slice
                     ax6.imshow(np.flip(sag_slice, axis=0), aspect=2.5, cmap='Greys_r')
-                    sag_slice = h_targets[tdx, :, :, int(round(targets[tdx, 2]))].astype(float)
-                    ax7.imshow(np.flip(sag_slice, axis=0), aspect=2.5, cmap='nipy_spectral', vmin=0, vmax=1)
-                    sag_slice = output[tdx, :, :, int(round(targets[tdx, 2]))].astype(float)
-                    ax8.imshow(np.flip(sag_slice, axis=0), aspect=2.5, cmap='nipy_spectral', vmin=0, vmax=max(self.epsilon, np.max(output)))
+                    sag_slice = mask[:, :, coords[2]].astype(float)
+                    ax7.imshow(np.flip(sag_slice, axis=0), aspect=2.5, cmap='nipy_spectral', vmin=0, vmax=5)
+                    sag_slice = output[:, :, coords[2]].astype(float)
+                    ax8.imshow(np.flip(sag_slice, axis=0), aspect=2.5, cmap='nipy_spectral', vmin=0, vmax=5)
                     self.writer.add_figure(tag='Spleen_pred', figure=fig3, global_step=self.num_epoch)
                     fig3.savefig(os.path.join(self.fig_dir, 'Spleen_pred_'+str(self.num_epoch)+'.png'))
                     
                     # axial view of the pancreas
-                    tdx = 4
+                    sdx = 4
+                    coords = self.find_coords(mask, sdx)
                     fig4, (ax9, ax10, ax11) = plt.subplots(1, 3, figsize=(15, 5), tight_layout=True)
-                    ax_slice = ct_im[which_to_show, 0, int(round(targets[tdx, 0]))].cpu().numpy().astype(float)             # <-- batch_num, contrast_channel, ax_slice
+                    ax_slice = ct_im[which_to_show, 0, coords[0]].cpu().numpy().astype(float)             # <-- batch_num, contrast_channel, ax_slice
                     ax9.imshow(ax_slice, aspect=1.0, cmap='Greys_r')
-                    ax_slice = h_targets[tdx, int(round(targets[tdx, 0]))].astype(float)
-                    ax10.imshow(ax_slice, aspect=1.0, cmap='nipy_spectral', vmin=0, vmax=1)
-                    ax_slice = output[tdx, int(round(targets[tdx, 0]))].astype(float)
-                    ax11.imshow(ax_slice, aspect=1.0, cmap='nipy_spectral', vmin=0, vmax=max(self.epsilon, np.max(output)))
+                    ax_slice = mask[coords[0]].astype(float)
+                    ax10.imshow(ax_slice, aspect=1.0, cmap='nipy_spectral', vmin=0, vmax=5)
+                    ax_slice = output[coords[0]].astype(float)
+                    ax11.imshow(ax_slice, aspect=1.0, cmap='nipy_spectral', vmin=0, vmax=5)
                     self.writer.add_figure(tag='Pancreas_pred', figure=fig4, global_step=self.num_epoch)
                     fig4.savefig(os.path.join(self.fig_dir, 'Pancreas_pred_'+str(self.num_epoch)+'.png'))
-                '''
                 
             self._log_stats('val', val_losses.avg)
             self.logger.info(f'Validation finished. Loss: {val_losses.avg}')
@@ -261,6 +263,13 @@ class roughSegmenter_trainer:
             # use exp_log_loss
             loss = exp_log_loss(output, mask, ignore_index)
             return output, loss
+
+    def find_coords(self, mask, sdx, sdx2=None):
+        if sdx2:
+            coords = center_of_mass(np.logical_or(mask == sdx, mask == sdx2))
+        else:
+            coords = center_of_mass(mask == sdx)
+        return np.round(coords).astype(int)
 
     def _is_best_eval_score(self, eval_score):
         if self.eval_score_higher_is_better:
