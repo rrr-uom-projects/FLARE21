@@ -202,8 +202,8 @@ class roughSegmenter_trainer:
                 
                 output, loss = self._forward_pass(ct_im, mask, ignore_index)
                 val_losses.update(loss.item(), self._batch_size(ct_im))
-                
-                if (batch_idx == 0) and ((self.num_epoch < 50) or (self.num_epoch < 100 and not self.num_epoch%5) or (self.num_epoch < 500 and not self.num_epoch%25) or (not self.num_epoch%100)):                   
+
+                if (batch_idx == 0) and (ignore_index==True).all() and ((self.num_epoch < 50) or (self.num_epoch < 100 and not self.num_epoch%5) or (self.num_epoch < 500 and not self.num_epoch%25) or (not self.num_epoch%100)):                   
                     # transferring between the gpu and cpu with .cpu() is really inefficient
                     # -> only transfer slices for plotting not entire volumes (& only plot every so often ... ^ what this mess up here is doing)
                     # plot ims -> - $tensorboard --logdir=MODEL_DIRECTORY --port=6006 --bind_all --samples_per_plugin="images=0"
@@ -214,7 +214,7 @@ class roughSegmenter_trainer:
 
                     # CoM of targets plots
                     # coronal view of the Liver plot
-                    sdx = 0
+                    sdx = 1
                     coords = self.find_coords(mask, sdx)
                     fig, (ax0, ax1, ax2) = plt.subplots(1, 3, figsize=(15, 5), tight_layout=True)
                     coronal_slice = ct_im[which_to_show, 0, :, coords[1]].cpu().numpy().astype(float)     # <-- batch_num, contrast_channel, ax_dim(:), coronal_slice
@@ -227,8 +227,8 @@ class roughSegmenter_trainer:
                     fig.savefig(os.path.join(self.fig_dir, 'Liver_pred_'+str(self.num_epoch)+'.png'))
                     
                     # axial view of the kidneys (centre kidney L for simplicity)
-                    sdx = 1
-                    coords = self.find_coords(mask, sdx, 2)
+                    sdx = 2
+                    coords = self.find_coords(mask, sdx, 3)
                     fig2, (ax3, ax4, ax5) = plt.subplots(1, 3, figsize=(15, 5), tight_layout=True)
                     ax_slice = ct_im[which_to_show, 0, coords[0]].cpu().numpy().astype(float)             # <-- batch_num, contrast_channel, ax_slice
                     ax3.imshow(ax_slice, aspect=1.0, cmap='Greys_r')
@@ -240,7 +240,7 @@ class roughSegmenter_trainer:
                     fig2.savefig(os.path.join(self.fig_dir, 'Kidneys_pred_'+str(self.num_epoch)+'.png'))
                     
                     # sagittal view of the spleen
-                    sdx = 3
+                    sdx = 4
                     coords = self.find_coords(mask, sdx)
                     fig3, (ax6, ax7, ax8) = plt.subplots(1, 3, figsize=(15, 5), tight_layout=True)
                     sag_slice = ct_im[which_to_show, 0, :, :, coords[2]].cpu().numpy().astype(float)            # <-- batch_num, contrast_channel, sag_slice
@@ -253,7 +253,7 @@ class roughSegmenter_trainer:
                     fig3.savefig(os.path.join(self.fig_dir, 'Spleen_pred_'+str(self.num_epoch)+'.png'))
                     
                     # axial view of the pancreas
-                    sdx = 4
+                    sdx = 5
                     coords = self.find_coords(mask, sdx)
                     fig4, (ax9, ax10, ax11) = plt.subplots(1, 3, figsize=(15, 5), tight_layout=True)
                     ax_slice = ct_im[which_to_show, 0, coords[0]].cpu().numpy().astype(float)             # <-- batch_num, contrast_channel, ax_slice
