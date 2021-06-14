@@ -10,10 +10,12 @@ import deepmind_metrics
 
 imagedir = "/data/FLARE21/training_data/scaled_ims/"
 maskdir = "/data/FLARE21/training_data/scaled_masks/"
-folds = [1]#[1,2,3,4,5]
+folds = [1,2,3,4,5]
 dataset_size = 92 #len(sorted(getFiles(imagedir)))
 all_fnames = sorted(getFiles(imagedir))
 spacings = np.load("/data/FLARE21/training_data/spacings_scaled.npy")[:,[2,0,1]]    # change order from (AP,LR,CC) to (CC,AP,LR)
+labels_present_all = np.load("/data/FLARE21/training_data/labels_present.npy")
+organs = ["liver", "kidney L", "kidney R", "spleen", "pancreas"]
 
 def main():
     # Create logger
@@ -26,7 +28,7 @@ def main():
     model.to('cuda')
 
     # setup result grids
-    res = np.zeros(shape=(len(folds), dataset_size, 5, 2))
+    res = np.zeros(shape=(len(folds), dataset_size // 5, 5, 2))
 
     # iterate over folds
     for fdx, fold_num in enumerate(folds):
@@ -57,19 +59,26 @@ def main():
             # run forward pass
             t = time.time()
             prediction = model(torch.tensor(ct_im, dtype=torch.float).to('cuda'))
-            logger.info(f"{test_fname} seg. took {time.time()-t:.2f} seconds")
+            logger.info(f"{test_fname} seg. took {time.time()-t:.4f} seconds")
             # change prediction from one-hot to mask and move back to cpu for metric calculation
             prediction = torch.squeeze(prediction)
             prediction = torch.argmax(prediction, dim=0)
             prediction = prediction.cpu().numpy().astype(int)
             # save output
-            #np.save(os.path.join("/data/FLARE21/results/roughSegmenter/test_segs/", 'pred_'+test_fname), prediction)
+            np.save(os.path.join("/data/FLARE21/results/roughSegmenter/test_segs/", 'pred_'+test_fname), prediction)
             # get spacing for this image
             spacing = spacings[test_ind]
-            spacing = spacing[2,0,1]
+            # get present labels
+            labels_present = labels_present_all[test_ind]
             # calculate metrics
             first_oar_idx = 1
             for organ_idx, organ_num in enumerate(range(first_oar_idx, gold_mask.max()+1)):
+                # check if label present in gs, skip if not
+                if not labels_present[organ_idx]:
+                    logger.info(f"{test_fname} missing {organs[organ_idx]}, skipping...")
+                    res[fdx, pat_idx, organ_idx, 0] = -235.
+                    res[fdx, pat_idx, organ_idx, 1] = -235.
+                    continue
                 # Need to binarise the masks for the metric computation
                 gs = np.zeros(shape=gold_mask.shape)
                 pred = np.zeros(shape=prediction.shape)
@@ -79,12 +88,14 @@ def main():
                 labels, num_features = ndimage.label(input=pred, structure=np.ones((3,3,3)))
                 sizes = ndimage.sum(pred, labels, range(num_features+1))
                 pred[(labels!=np.argmax(sizes))] = 0
+                # complete extra post processing for the weird right kidney behaviour -> need to figure out whats going on here?
+                if organ_idx == 2:
+                    pred[-3:] = 0   # Weird massive activation for the right kidney at the cottom for every model? look into this...
                 # compute the surface distances
                 surface_distances = deepmind_metrics.compute_surface_distances(gs.astype(bool), pred.astype(bool), spacing)
                 # compute desired metric
                 hausdorff95 = deepmind_metrics.compute_robust_hausdorff(surface_distances, percent=95.)
                 meanDTA = deepmind_metrics.compute_average_surface_distance(surface_distances)
-                print(hausdorff95, meanDTA)
                 # store result
                 res[fdx, pat_idx, organ_idx, 0] = hausdorff95
                 res[fdx, pat_idx, organ_idx, 1] = meanDTA

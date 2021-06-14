@@ -9,7 +9,7 @@ import random
 import os
 import argparse as ap
 
-from models import roughSegmenter
+from models import roughSegmenter_deeper
 from Trainers import roughSegmenter_trainer
 from utils import k_fold_split_train_val_test, get_logger, get_number_of_learnable_parameters, getFiles, windowLevelNormalize
 
@@ -34,7 +34,7 @@ def main():
     logger = get_logger('organHunter_Training')
 
     # Create the model
-    model = roughSegmenter(n_classes=6, in_channels=1, p_drop=0)
+    model = roughSegmenter_deeper(n_classes=6, in_channels=1, p_drop=0.25)
 
     for param in model.parameters():
         param.requires_grad = True
@@ -46,7 +46,7 @@ def main():
     # Log the number of learnable parameters
     logger.info(f'Number of learnable params {get_number_of_learnable_parameters(model)}')
     train_BS = int(8)
-    val_BS = int(5)
+    val_BS = int(2)
     train_workers = int(4)
     val_workers = int(2)
 
@@ -57,7 +57,7 @@ def main():
     # Create them dataloaders
     train_data = roughSegmenter_Dataset(imagedir=imagedir, maskdir=maskdir, image_inds=train_inds, shift_augment=True, rotate_augment=True, scale_augment=True, flip_augment=False)
     train_loader = DataLoader(dataset=train_data, batch_size=train_BS, shuffle=True, pin_memory=False, num_workers=train_workers, worker_init_fn=lambda _: np.random.seed(int(torch.initial_seed())%(2**32-1)))
-    val_data = roughSegmenter_Dataset(imagedir=imagedir, maskdir=maskdir, image_inds=val_inds, shift_augment=False, rotate_augment=True, scale_augment=True, flip_augment=False)
+    val_data = roughSegmenter_Dataset(imagedir=imagedir, maskdir=maskdir, image_inds=val_inds, shift_augment=False, rotate_augment=False, scale_augment=False, flip_augment=False)
     val_loader = DataLoader(dataset=val_data, batch_size=val_BS, shuffle=True, pin_memory=False, num_workers=val_workers, worker_init_fn=lambda _: np.random.seed(int(torch.initial_seed())%(2**32-1)))
 
     # Create the optimizer
@@ -95,7 +95,7 @@ class roughSegmenter_Dataset(data.Dataset):
         ct_im = np.load(os.path.join(self.imagedir, imageToUse))
         mask = np.load(os.path.join(self.maskdir, imageToUse))
         ignore_index = self.ignore_oars[idx]
-        
+
         # Augmentations
         if self.shifts:
             # find shift values
@@ -115,7 +115,7 @@ class roughSegmenter_Dataset(data.Dataset):
 
         if self.scaling and random.random()<0.5:
             # same here -> zoom between 80-120%
-            scale_factor = np.clip(np.random.normal(loc=1.0,scale=0.06), 0.8, 1.2)
+            scale_factor = np.clip(np.random.normal(loc=1.0,scale=0.05), 0.8, 1.2)
             ct_im = self.scale(ct_im, scale_factor, is_mask=False)
             mask = self.scale(mask, scale_factor, is_mask=True)
         
