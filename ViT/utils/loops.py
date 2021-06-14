@@ -1,7 +1,7 @@
 """
 Main training loops
 """
-
+import os
 import torch
 import torch.nn as nn
 import numpy as np
@@ -21,6 +21,7 @@ class FineSegmentation():
         self.num_epochs = num_epochs
         self.best_loss = 10000 #* Init. Loss to large val.
         self.output_path = './logs/'
+        os.makedirs(self.output_path, exist_ok=True)
 
     def forward(self):
         for epoch in range(self.num_epochs + 1):

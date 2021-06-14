@@ -1,0 +1,1 @@
+python3 train_seg.py --fold_num 1 --GPUs 1
