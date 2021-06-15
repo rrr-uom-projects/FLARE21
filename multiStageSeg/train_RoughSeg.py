@@ -46,12 +46,12 @@ def main():
     # Log the number of learnable parameters
     logger.info(f'Number of learnable params {get_number_of_learnable_parameters(model)}')
     train_BS = int(8)
-    val_BS = int(2)
+    val_BS = int(6)
     train_workers = int(4)
     val_workers = int(2)
 
     # allocate ims to train, val and test
-    dataset_size = 92 #len(sorted(getFiles(imagedir)))
+    dataset_size = len(sorted(getFiles(imagedir)))
     train_inds, val_inds, test_inds = k_fold_split_train_val_test(dataset_size, fold_num=args.fold_num, seed=230597)
 
     # Create them dataloaders
@@ -81,11 +81,12 @@ class roughSegmenter_Dataset(data.Dataset):
         self.imagedir = imagedir
         self.maskdir = maskdir
         self.availableImages = [sorted(getFiles(imagedir))[ind] for ind in image_inds]
+        self.image_inds = image_inds
         self.shifts = shift_augment
         self.flips = flip_augment
         self.rotations = rotate_augment
         self.scaling = scale_augment
-        self.ignore_oars = np.load("/data/FLARE21/training_data/labels_present.npy")
+        self.ignore_oars = np.load("/data/FLARE21/training_data/labels_present360.npy")
 
     def __getitem__(self, idx):
         if torch.is_tensor(idx):
@@ -94,7 +95,7 @@ class roughSegmenter_Dataset(data.Dataset):
         #spacing = np.load("/data/FLARE21/training_data/spacings_scaled.npy")[idx][[2,0,1]]
         ct_im = np.load(os.path.join(self.imagedir, imageToUse))
         mask = np.load(os.path.join(self.maskdir, imageToUse))
-        ignore_index = self.ignore_oars[idx]
+        ignore_index = self.ignore_oars[self.image_inds[idx]]
 
         # Augmentations
         if self.shifts:
@@ -133,6 +134,7 @@ class roughSegmenter_Dataset(data.Dataset):
         
         # use one-hot masks
         mask = (np.arange(6) == mask[...,None]).astype(int)
+        mask = np.transpose(mask, axes=(3,0,1,2))
 
         # send it
         return {'ct_im': ct_im, 'mask': mask, 'ignore_index': ignore_index}
