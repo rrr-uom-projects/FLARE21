@@ -11,11 +11,16 @@ import deepmind_metrics
 imagedir = "/data/FLARE21/training_data/scaled_ims/"
 maskdir = "/data/FLARE21/training_data/scaled_masks/"
 folds = [1,2,3,4,5]
-dataset_size = 92 #len(sorted(getFiles(imagedir)))
+dataset_size = len(sorted(getFiles(imagedir)))
 all_fnames = sorted(getFiles(imagedir))
 spacings = np.load("/data/FLARE21/training_data/spacings_scaled.npy")[:,[2,0,1]]    # change order from (AP,LR,CC) to (CC,AP,LR)
 labels_present_all = np.load("/data/FLARE21/training_data/labels_present.npy")
 organs = ["liver", "kidney L", "kidney R", "spleen", "pancreas"]
+
+def dice(a, b):
+    a = a.reshape(-1)
+    b = b.reshape(-1)
+    return (2. * (a*b).sum()) / (a.sum() + b.sum())
 
 def main():
     # Create logger
@@ -28,7 +33,7 @@ def main():
     model.to('cuda')
 
     # setup result grids
-    res = np.zeros(shape=(len(folds), dataset_size // 5, 5, 2))
+    res = np.full(shape=(len(folds), dataset_size // 5, 5, 2), fill_value=np.nan)
 
     # iterate over folds
     for fdx, fold_num in enumerate(folds):
@@ -76,8 +81,6 @@ def main():
                 # check if label present in gs, skip if not
                 if not labels_present[organ_idx]:
                     logger.info(f"{test_fname} missing {organs[organ_idx]}, skipping...")
-                    res[fdx, pat_idx, organ_idx, 0] = -235.
-                    res[fdx, pat_idx, organ_idx, 1] = -235.
                     continue
                 # Need to binarise the masks for the metric computation
                 gs = np.zeros(shape=gold_mask.shape)
@@ -94,11 +97,10 @@ def main():
                 # compute the surface distances
                 surface_distances = deepmind_metrics.compute_surface_distances(gs.astype(bool), pred.astype(bool), spacing)
                 # compute desired metric
-                hausdorff95 = deepmind_metrics.compute_robust_hausdorff(surface_distances, percent=95.)
-                meanDTA = deepmind_metrics.compute_average_surface_distance(surface_distances)
+                surface_DSC = deepmind_metrics.compute_surface_dice_at_tolerance(surface_distances, tolerance_mm=5.)
                 # store result
-                res[fdx, pat_idx, organ_idx, 0] = hausdorff95
-                res[fdx, pat_idx, organ_idx, 1] = meanDTA
+                res[fdx, pat_idx, organ_idx, 0] = dice(gs, pred)
+                res[fdx, pat_idx, organ_idx, 1] = surface_DSC
 
     # save results
     np.save("/data/FLARE21/results/roughSegmenter/results_grid.npy", res)
