@@ -9,8 +9,8 @@ import random
 import os
 import argparse as ap
 
-from models import roughSegmenter_deeper
-from trainer import roughSegmenter_trainer
+from models import light_segmenter
+from trainer import segmenter_trainer
 from roughSeg.utils import k_fold_split_train_val_test, get_logger, get_number_of_learnable_parameters, getFiles, windowLevelNormalize
 
 imagedir = "/data/FLARE21/training_data/scaled_ims/"
@@ -34,7 +34,7 @@ def main():
     logger = get_logger('organHunter_Training')
 
     # Create the model
-    model = roughSegmenter_deeper(n_classes=6, in_channels=1, p_drop=0.25)
+    model = light_segmenter(n_classes=6, in_channels=1, p_drop=0.25)
 
     for param in model.parameters():
         param.requires_grad = True
@@ -55,9 +55,9 @@ def main():
     train_inds, val_inds, test_inds = k_fold_split_train_val_test(dataset_size, fold_num=args.fold_num, seed=230597)
 
     # Create them dataloaders
-    train_data = roughSegmenter_Dataset(imagedir=imagedir, maskdir=maskdir, image_inds=train_inds, shift_augment=True, rotate_augment=True, scale_augment=True, flip_augment=False)
+    train_data = segmenter_Dataset(imagedir=imagedir, maskdir=maskdir, image_inds=train_inds, shift_augment=True, rotate_augment=True, scale_augment=True, flip_augment=False)
     train_loader = DataLoader(dataset=train_data, batch_size=train_BS, shuffle=True, pin_memory=False, num_workers=train_workers, worker_init_fn=lambda _: np.random.seed(int(torch.initial_seed())%(2**32-1)))
-    val_data = roughSegmenter_Dataset(imagedir=imagedir, maskdir=maskdir, image_inds=val_inds, shift_augment=False, rotate_augment=False, scale_augment=False, flip_augment=False)
+    val_data = segmenter_Dataset(imagedir=imagedir, maskdir=maskdir, image_inds=val_inds, shift_augment=False, rotate_augment=False, scale_augment=False, flip_augment=False)
     val_loader = DataLoader(dataset=val_data, batch_size=val_BS, shuffle=True, pin_memory=False, num_workers=val_workers, worker_init_fn=lambda _: np.random.seed(int(torch.initial_seed())%(2**32-1)))
 
     # Create the optimizer
@@ -67,7 +67,7 @@ def main():
     lr_scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=175, verbose=True)
     
     # Create model trainer
-    trainer = roughSegmenter_trainer(model=model, optimizer=optimizer, lr_scheduler=lr_scheduler, device=device, train_loader=train_loader, 
+    trainer = segmenter_trainer(model=model, optimizer=optimizer, lr_scheduler=lr_scheduler, device=device, train_loader=train_loader, 
                                     val_loader=val_loader, logger=logger, checkpoint_dir=checkpoint_dir, max_num_epochs=1000, patience=500, iters_to_accumulate=1)
     
     # Start training
@@ -76,7 +76,7 @@ def main():
     # Romeo Dunn
     return
     
-class roughSegmenter_Dataset(data.Dataset):
+class segmenter_Dataset(data.Dataset):
     def __init__(self, imagedir, maskdir, image_inds, shift_augment=True, rotate_augment=True, scale_augment=True, flip_augment=False):
         self.imagedir = imagedir
         self.maskdir = maskdir
@@ -124,6 +124,11 @@ class roughSegmenter_Dataset(data.Dataset):
             raise NotImplementedError # LR flips shouldn't be applied I don't think
     
         # perform window-levelling here, create 3 channels
+
+        ###
+        # This is where to add in extra augmentations and channels
+        ###
+
         #ct_im3 = np.zeros(shape=(3,) + ct_im.shape)
         #ct_im3[0] = windowLevelNormalize(ct_im, level=50, window=400)   # abdomen "soft tissues"
         #ct_im3[1] = windowLevelNormalize(ct_im, level=30, window=150)   # liver

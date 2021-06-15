@@ -10,6 +10,10 @@ import roughSeg.utils as utils
 import time
 from scipy.ndimage import center_of_mass
 
+#####################################################################################################
+############################################ loss fns ###############################################
+#####################################################################################################
+
 def multiclass_simple_dice_loss(prediction, mask, ignore_index, useWeights=True):
     # prediction is (B,C,H,W,D)
     # target_mask NEEDS to be one-hot encoded [(B,C,H,W,D) <-- one-hot encoded]
@@ -103,10 +107,10 @@ def exp_log_loss(prediction, mask, ignore_index, device='cuda'):
     return (w_dice*dice_loss) + (w_xe*xe_loss)
 
 #####################################################################################################
-########################################### trainers ################################################
+############################################ trainer ################################################
 #####################################################################################################
 
-class roughSegmenter_trainer:
+class segmenter_trainer:
     def __init__(self, model, optimizer, lr_scheduler, device, train_loader, val_loader, logger, checkpoint_dir, max_num_epochs=100,
                 num_iterations=1, num_epoch=0, patience=10, iters_to_accumulate=4, best_eval_score=None, eval_score_higher_is_better=False):
         self.logger = logger
