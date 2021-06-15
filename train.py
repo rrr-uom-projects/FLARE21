@@ -45,10 +45,10 @@ def main():
 
     # Log the number of learnable parameters
     logger.info(f'Number of learnable params {get_number_of_learnable_parameters(model)}')
-    train_BS = int(8)
-    val_BS = int(6)
+    train_BS = int(1)
+    val_BS = int(1)
     train_workers = int(4)
-    val_workers = int(2)
+    val_workers = int(4)
 
     # allocate ims to train, val and test
     dataset_size = len(sorted(getFiles(imagedir)))
