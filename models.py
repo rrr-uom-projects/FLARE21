@@ -187,27 +187,27 @@ class conv_module(nn.Module):
         if in_channels != out_channels:
             self.res_conv = nn.Sequential(
                 nn.Conv3d(in_channels=in_channels, out_channels=out_channels, kernel_size=(1,1,1)),
-                nn.BatchNorm3d(out_channels)
+                nn.BatchNorm3d(out_channels),
+                nn.ReLU(inplace=True),
             )
     def forward(self, x):
-        x = self.double_conv(x)
         if self.res_conv is not None:
             return self.double_conv(x) + self.res_conv(x)
         else:
             return self.double_conv(x) + x
 
 class resize_conv(nn.Module):
-    def __init__(self, in_channels, out_channels, p_drop, scale_factor=2):
+    def __init__(self, in_channels, out_channels, p_drop):
         super(resize_conv, self).__init__()
         self.resize_conv = nn.Sequential(
             nn.Conv3d(in_channels=in_channels, out_channels=out_channels, kernel_size=(3,3,3), padding=1),
             nn.BatchNorm3d(out_channels),
             nn.ReLU(inplace=True),
-            nn.Dropout3d(p=p_drop, inplace=True)
+            nn.Dropout3d(p=p_drop, inplace=True),
         )
-        self.scale_factor = scale_factor
     def forward(self, x):
-        return self.resize_conv(F.interpolate(x, self.scale_factor, mode='trilinear', align_corners=False))
+        x = F.interpolate(x, scale_factor=2, mode='trilinear', align_corners=False)
+        return self.resize_conv(x)
 
 class yolo_segmenter_simplified(nn.Module):
     def __init__(self, n_classes=7, in_channels=1, p_drop=0.25):
