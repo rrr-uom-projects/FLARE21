@@ -4,13 +4,13 @@ from scipy import ndimage
 import os
 import time
 
-from models import roughSegmenter
+from models import roughSegmenter_deeper
 from utils import k_fold_split_train_val_test, get_logger, get_number_of_learnable_parameters, getFiles, windowLevelNormalize
 import deepmind_metrics
 
 imagedir = "/data/FLARE21/training_data/scaled_ims/"
 maskdir = "/data/FLARE21/training_data/scaled_masks/"
-folds = [1,2,3,4,5]
+folds = [2]#[1,2,3,4,5]
 dataset_size = len(sorted(getFiles(imagedir)))
 all_fnames = sorted(getFiles(imagedir))
 spacings = np.load("/data/FLARE21/training_data/spacings_scaled.npy")[:,[2,0,1]]    # change order from (AP,LR,CC) to (CC,AP,LR)
@@ -27,7 +27,7 @@ def main():
     logger = get_logger('roughSeg_testing')
 
     # Create the model
-    model = roughSegmenter(n_classes=6, in_channels=1, p_drop=0)
+    model = roughSegmenter_deeper(n_classes=6, in_channels=1, p_drop=0)
 
     # put the model on GPU
     model.to('cuda')
