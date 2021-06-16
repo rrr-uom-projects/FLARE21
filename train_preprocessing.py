@@ -9,8 +9,11 @@ import os
 
 imdir = "/data/FLARE21/training_data/TrainingImg/"
 maskdir = "/data/FLARE21/training_data/TrainingMask/"
-out_imdir = "/data/FLARE21/training_data_w_body/scaled_ims/"
-out_maskdir = "/data/FLARE21/training_data_w_body/scaled_masks/"
+out_dir = "/data/FLARE21/training_data_256/"
+out_imdir = os.path.join(out_dir, "scaled_ims/")
+out_maskdir = os.path.join(out_dir, "scaled_masks/")
+
+out_resolution = (96,256,256)
 
 # OARs : 1 - Liver, 2 - Kidneys, 3 - Spleen, 4 - Pancreas
 # IMPORTANT! : sitk_image.GetDirection()[-1] -> (1 or -1) -> flip cranio-caudally if -1
@@ -75,9 +78,9 @@ for pdx, fname in enumerate(sorted(getFiles(imdir))):
     # resample all images to common size
     spacing = np.array(sitk_im.GetSpacing())
     size = np.array(im.shape)
-    scale_factor = np.array([96,192,192]) / size
-    im = resize(im, output_shape=(96,192,192), order=3, anti_aliasing=True, preserve_range=True)
-    mask = np.round(resize(mask, output_shape=(96,192,192), order=0, anti_aliasing=False, preserve_range=True)).astype(np.uint8)
+    scale_factor = np.array(out_resolution) / size
+    im = resize(im, output_shape=out_resolution, order=3, anti_aliasing=True, preserve_range=True)
+    mask = np.round(resize(mask, output_shape=out_resolution, order=0, anti_aliasing=False, preserve_range=True)).astype(np.uint8)
     
     # rescale spacings
     spacing /= scale_factor[[2,1,0]]
@@ -98,7 +101,7 @@ for pdx, fname in enumerate(sorted(getFiles(imdir))):
         label_freq[odx] += (mask==odx).sum()
 
 # save newly scaled spacings and sizes
-np.save(os.path.join("/data/FLARE21/training_data_w_body/", "spacings_scaled.npy"), spacings_scaled)
-np.save("/data/FLARE21/training_data_w_body/labels_present.npy", labels_present)
+np.save(os.path.join(out_dir, "spacings_scaled.npy"), spacings_scaled)
+np.save(os.path.join(out_dir, "labels_present.npy"), labels_present)
 print(label_freq)
-np.save("/data/FLARE21/training_data_w_body/label_freq.npy", label_freq)
+np.save(os.path.join(out_dir, "label_freq.npy"), label_freq)
