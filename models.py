@@ -174,17 +174,17 @@ class yolo_segmenter(nn.Module):
     def __init__(self, n_classes=7, in_channels=1, p_drop=0.25):
         super(yolo_segmenter, self).__init__()
         # Input --> (in_channels, 96, 256, 256)
-        self.yolo_input_conv = nn.Conv3d(in_channels=in_channels, out_channels=32, kernel_size=(7,7,7), padding=(3,3,3), stride=(1,2,2))
-        self.yolo_bn = nn.BatchNorm3d(32)
+        self.yolo_input_conv = nn.Conv3d(in_channels=in_channels, out_channels=16, kernel_size=(7,7,7), padding=(3,3,3), stride=(1,2,2))
+        self.yolo_bn = nn.BatchNorm3d(16)
         self.yolo_drop = nn.Dropout3d(p=p_drop)
         # conv layers set 1 - down 1
-        self.c1 = nn.Conv3d(in_channels=32, out_channels=32, kernel_size=3, padding=1)
+        self.c1 = nn.Conv3d(in_channels=16, out_channels=32, kernel_size=3, padding=1)
         self.bn1 = nn.BatchNorm3d(32)
         self.drop1 = nn.Dropout3d(p=p_drop)
         self.c2 = nn.Conv3d(in_channels=32, out_channels=32, kernel_size=3, padding=1)
         self.bn2 = nn.BatchNorm3d(32)
         self.drop2 = nn.Dropout3d(p=p_drop)
-        self.sc1 = nn.Conv3d(in_channels=in_channels, out_channels=32, kernel_size=(1,1,1))
+        self.sc1 = nn.Conv3d(in_channels=16, out_channels=32, kernel_size=(1,1,1))
         self.sc1_bn = nn.BatchNorm3d(32)
         # conv layers set 2 - down 2
         self.c3 = nn.Conv3d(in_channels=32, out_channels=64, kernel_size=3, padding=1)
@@ -325,7 +325,7 @@ class yolo_segmenter(nn.Module):
         x = self.drop14(x)
         x += res_skip
         # Upsample 4
-        x = self.rc4_drop(F.relu(self.rc4_bn(self.rc4(F.interpolate(x, scale_factor=(1,1,1,2,2), mode='trilinear', align_corners=False)))))
+        x = self.rc4_drop(F.relu(self.rc4_bn(self.rc4(F.interpolate(x, scale_factor=(1,2,2), mode='trilinear', align_corners=False)))))
         # Predict
         return self.pred(x)
 
