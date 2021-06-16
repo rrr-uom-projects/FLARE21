@@ -13,8 +13,7 @@ from models import light_segmenter
 from trainer import segmenter_trainer
 from roughSeg.utils import k_fold_split_train_val_test, get_logger, get_number_of_learnable_parameters, getFiles, windowLevelNormalize
 
-imagedir = "/data/FLARE21/training_data/scaled_ims/"
-maskdir = "/data/FLARE21/training_data/scaled_masks/"
+source_dir = "/data/FLARE21/training_data_192/"
 
 def setup_argparse():
     parser = ap.ArgumentParser(prog="Main training program for 3D location-finding network \"headhunter\"")
@@ -28,8 +27,11 @@ def main():
     setup_argparse()
     global args
 
-    # decide checkpoint directory
-    checkpoint_dir = "/data/FLARE21/models/roughSegmenter/fold"+str(args.fold_num)
+    # set directories
+    checkpoint_dir = "/data/FLARE21/models/light_segmenter/fold"+str(args.fold_num)
+    imagedir = os.path.join(source_dir, "scaled_ims/")
+    maskdir = os.path.join(source_dir, "scaled_masks/")
+
     # Create main logger
     logger = get_logger('organHunter_Training')
 
@@ -48,11 +50,14 @@ def main():
     train_BS = int(1)
     val_BS = int(1)
     train_workers = int(4)
-    val_workers = int(4)
+    val_workers = int(2)
 
     # allocate ims to train, val and test
-    dataset_size = len(sorted(getFiles(imagedir)))
+    dataset_size = 36 #len(sorted(getFiles(imagedir)))
     train_inds, val_inds, test_inds = k_fold_split_train_val_test(dataset_size, fold_num=args.fold_num, seed=230597)
+
+    # get label frequencies for weighted loss fns
+    label_freq = np.load(os.path.join(source_dir), "label_freq.npy")
 
     # Create them dataloaders
     train_data = segmenter_Dataset(imagedir=imagedir, maskdir=maskdir, image_inds=train_inds, shift_augment=True, rotate_augment=True, scale_augment=True, flip_augment=False)
@@ -64,11 +69,11 @@ def main():
     optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr = 0.005)
 
     # Create learning rate adjustment strategy
-    lr_scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=175, verbose=True)
+    lr_scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=75, verbose=True)
     
     # Create model trainer
-    trainer = segmenter_trainer(model=model, optimizer=optimizer, lr_scheduler=lr_scheduler, device=device, train_loader=train_loader, 
-                                    val_loader=val_loader, logger=logger, checkpoint_dir=checkpoint_dir, max_num_epochs=1000, patience=500, iters_to_accumulate=1)
+    trainer = segmenter_trainer(model=model, optimizer=optimizer, lr_scheduler=lr_scheduler, device=device, train_loader=train_loader, val_loader=val_loader, 
+                                label_freq=label_freq, logger=logger, checkpoint_dir=checkpoint_dir, max_num_epochs=1000, patience=200, iters_to_accumulate=4)
     
     # Start training
     trainer.fit()

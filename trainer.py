@@ -14,14 +14,13 @@ from scipy.ndimage import center_of_mass
 ############################################ loss fns ###############################################
 #####################################################################################################
 
-def multiclass_simple_dice_loss(prediction, mask, ignore_index, useWeights=True):
+def multiclass_simple_dice_loss(prediction, mask, ignore_index, label_freq, useWeights=True):
     # prediction is (B,C,H,W,D)
     # target_mask NEEDS to be one-hot encoded [(B,C,H,W,D) <-- one-hot encoded]
     # Use weights for highly unbalanced classes
     num_classes = prediction.size()[1]
     if useWeights:
-        label_count = np.array([358074923, 14152955, 1698684, 1643118,  2153875, 812381])
-        class_weights = np.power(label_count.sum() / label_count, 1/3)
+        class_weights = np.power(label_freq.sum() / label_freq, 1/3)
         class_weights /= np.sum(class_weights)
     else:
         class_weights = np.full((num_classes), 1/num_classes)   # flat normalised
@@ -52,7 +51,7 @@ def multiclass_simple_dice_loss(prediction, mask, ignore_index, useWeights=True)
         loss += w*(1 - (num/denom))
     return loss
 
-def exp_log_loss(prediction, mask, ignore_index, device='cuda'):
+def exp_log_loss(prediction, mask, ignore_index, label_freq, device='cuda'):
     """
     paper: 3D Segmentation with Exponential Logarithmic Loss for Highly Unbalanced Object Sizes
     https://arxiv.org/pdf/1809.00076.pdf
@@ -71,11 +70,8 @@ def exp_log_loss(prediction, mask, ignore_index, device='cuda'):
         ablation_mask = torch.zeros_like(dice_pred, dtype=bool)
         missing_inds = torch.where(~ignore_index)
         for imdx, sdx in zip(missing_inds[0], missing_inds[1]):
-            np.save("/data/FLARE21/training_data/preproc.npy", np.argmax(dice_pred[imdx].clone().detach().cpu().numpy(), axis=0))
             ablation_mask[imdx, sdx+1] = True
         dice_pred = dice_pred.masked_fill(ablation_mask, 0)
-        np.save("/data/FLARE21/training_data/postproc.npy", np.argmax(dice_pred[imdx].clone().detach().cpu().numpy(), axis=0))
-        np.save("/data/FLARE21/training_data/maskproc.npy", np.argmax(mask[imdx].clone().detach().cpu().numpy(), axis=3))
 
     pred_flat = dice_pred.view(-1, num_classes)
     mask_flat = mask.view(-1, num_classes)
@@ -88,9 +84,7 @@ def exp_log_loss(prediction, mask, ignore_index, device='cuda'):
     dice = num / denom
     dice_loss = torch.mean(torch.pow(torch.clamp(-torch.log(dice), min=1e-6), gamma))
 
-    # XE loss
-    label_freq = np.array([358074923, 14152955, 1698684, 1643118,  2153875, 812381])   # background, liver, kidney L, kidney R, spleen, pancreas
-    
+    # XE loss    
     class_weights = np.power(np.full((num_classes), label_freq.sum()) / label_freq, 0.5)
     xe_pred = F.log_softmax(prediction, dim=1)
     if (ignore_index==False).any():
@@ -111,7 +105,7 @@ def exp_log_loss(prediction, mask, ignore_index, device='cuda'):
 #####################################################################################################
 
 class segmenter_trainer:
-    def __init__(self, model, optimizer, lr_scheduler, device, train_loader, val_loader, logger, checkpoint_dir, max_num_epochs=100,
+    def __init__(self, model, optimizer, lr_scheduler, device, train_loader, val_loader, label_freq, logger, checkpoint_dir, max_num_epochs=100,
                 num_iterations=1, num_epoch=0, patience=10, iters_to_accumulate=4, best_eval_score=None, eval_score_higher_is_better=False):
         self.logger = logger
         self.logger.info(model)
@@ -121,6 +115,7 @@ class segmenter_trainer:
         self.device = device
         self.train_loader = train_loader
         self.val_loader = val_loader
+        self.label_freq = label_freq
         self.checkpoint_dir = checkpoint_dir
         self.max_num_epochs = max_num_epochs
         self.eval_score_higher_is_better = eval_score_higher_is_better
@@ -259,54 +254,54 @@ class segmenter_trainer:
 
                     # CoM of targets plots
                     # coronal view of the Liver plot
-                    sdx = 1
+                    sdx = 2
                     coords = self.find_coords(mask, sdx)
                     fig, (ax0, ax1, ax2) = plt.subplots(1, 3, figsize=(15, 5), tight_layout=True)
                     coronal_slice = ct_im[which_to_show, 0, :, coords[1]].cpu().numpy().astype(float)     # <-- batch_num, contrast_channel, ax_dim(:), coronal_slice
                     ax0.imshow(np.flip(coronal_slice, axis=0), aspect=2.5, cmap='Greys_r', vmin=0, vmax=1)
                     coronal_slice = mask[:, coords[1]].astype(float)
-                    ax1.imshow(np.flip(coronal_slice, axis=0), aspect=2.5, cmap='nipy_spectral', vmin=0, vmax=5)
+                    ax1.imshow(np.flip(coronal_slice, axis=0), aspect=2.5, cmap='nipy_spectral', vmin=0, vmax=6)
                     coronal_slice = output[:, coords[1]].astype(float)
-                    ax2.imshow(np.flip(coronal_slice, axis=0), aspect=2.5, cmap='nipy_spectral', vmin=0, vmax=5)
+                    ax2.imshow(np.flip(coronal_slice, axis=0), aspect=2.5, cmap='nipy_spectral', vmin=0, vmax=6)
                     self.writer.add_figure(tag='Liver_pred', figure=fig, global_step=self.num_epoch)
                     fig.savefig(os.path.join(self.fig_dir, 'Liver_pred_'+str(self.num_epoch)+'.png'))
                     
                     # axial view of the kidneys (centre kidney L for simplicity)
-                    sdx = 2
-                    coords = self.find_coords(mask, sdx, 3)
+                    sdx = 3
+                    coords = self.find_coords(mask, sdx, 4)
                     fig2, (ax3, ax4, ax5) = plt.subplots(1, 3, figsize=(15, 5), tight_layout=True)
                     ax_slice = ct_im[which_to_show, 0, coords[0]].cpu().numpy().astype(float)             # <-- batch_num, contrast_channel, ax_slice
                     ax3.imshow(ax_slice, aspect=1.0, cmap='Greys_r')
                     ax_slice = mask[coords[0]].astype(float)
-                    ax4.imshow(ax_slice, aspect=1.0, cmap='nipy_spectral', vmin=0, vmax=5)
+                    ax4.imshow(ax_slice, aspect=1.0, cmap='nipy_spectral', vmin=0, vmax=6)
                     ax_slice = output[coords[0]].astype(float)
-                    ax5.imshow(ax_slice, aspect=1.0, cmap='nipy_spectral', vmin=0, vmax=5)
+                    ax5.imshow(ax_slice, aspect=1.0, cmap='nipy_spectral', vmin=0, vmax=6)
                     self.writer.add_figure(tag='Kidneys_pred', figure=fig2, global_step=self.num_epoch)
                     fig2.savefig(os.path.join(self.fig_dir, 'Kidneys_pred_'+str(self.num_epoch)+'.png'))
                     
                     # sagittal view of the spleen
-                    sdx = 4
+                    sdx = 5
                     coords = self.find_coords(mask, sdx)
                     fig3, (ax6, ax7, ax8) = plt.subplots(1, 3, figsize=(15, 5), tight_layout=True)
                     sag_slice = ct_im[which_to_show, 0, :, :, coords[2]].cpu().numpy().astype(float)            # <-- batch_num, contrast_channel, sag_slice
                     ax6.imshow(np.flip(sag_slice, axis=0), aspect=2.5, cmap='Greys_r')
                     sag_slice = mask[:, :, coords[2]].astype(float)
-                    ax7.imshow(np.flip(sag_slice, axis=0), aspect=2.5, cmap='nipy_spectral', vmin=0, vmax=5)
+                    ax7.imshow(np.flip(sag_slice, axis=0), aspect=2.5, cmap='nipy_spectral', vmin=0, vmax=6)
                     sag_slice = output[:, :, coords[2]].astype(float)
-                    ax8.imshow(np.flip(sag_slice, axis=0), aspect=2.5, cmap='nipy_spectral', vmin=0, vmax=5)
+                    ax8.imshow(np.flip(sag_slice, axis=0), aspect=2.5, cmap='nipy_spectral', vmin=0, vmax=6)
                     self.writer.add_figure(tag='Spleen_pred', figure=fig3, global_step=self.num_epoch)
                     fig3.savefig(os.path.join(self.fig_dir, 'Spleen_pred_'+str(self.num_epoch)+'.png'))
                     
                     # axial view of the pancreas
-                    sdx = 5
+                    sdx = 6
                     coords = self.find_coords(mask, sdx)
                     fig4, (ax9, ax10, ax11) = plt.subplots(1, 3, figsize=(15, 5), tight_layout=True)
                     ax_slice = ct_im[which_to_show, 0, coords[0]].cpu().numpy().astype(float)             # <-- batch_num, contrast_channel, ax_slice
                     ax9.imshow(ax_slice, aspect=1.0, cmap='Greys_r')
                     ax_slice = mask[coords[0]].astype(float)
-                    ax10.imshow(ax_slice, aspect=1.0, cmap='nipy_spectral', vmin=0, vmax=5)
+                    ax10.imshow(ax_slice, aspect=1.0, cmap='nipy_spectral', vmin=0, vmax=6)
                     ax_slice = output[coords[0]].astype(float)
-                    ax11.imshow(ax_slice, aspect=1.0, cmap='nipy_spectral', vmin=0, vmax=5)
+                    ax11.imshow(ax_slice, aspect=1.0, cmap='nipy_spectral', vmin=0, vmax=6)
                     self.writer.add_figure(tag='Pancreas_pred', figure=fig4, global_step=self.num_epoch)
                     fig4.savefig(os.path.join(self.fig_dir, 'Pancreas_pred_'+str(self.num_epoch)+'.png'))
                 
@@ -319,9 +314,9 @@ class segmenter_trainer:
             # forward pass
             output = self.model(ct_im)
             # use exp_log_loss
-            #loss = exp_log_loss(output, mask, ignore_index)
+            #loss = exp_log_loss(output, mask, ignore_index, self.label_freq)
             # or use simpler multi-class weighted dice loss
-            loss = multiclass_simple_dice_loss(output, mask, ignore_index)
+            loss = multiclass_simple_dice_loss(output, mask, ignore_index, self.label_freq)
             return output, loss
 
     def find_coords(self, mask, sdx, sdx2=None):
