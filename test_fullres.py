@@ -3,9 +3,11 @@ import numpy as np
 from scipy import ndimage
 import os
 import time
+import SimpleITK as sitk
+from scipy.ndimage import resize
 
 from models import light_segmenter, yolo_segmenter, bottleneck_yolo_segmenter, asymmetric_yolo_segmenter
-from roughSeg.utils import k_fold_split_train_val_test, get_logger, get_number_of_learnable_parameters, getFiles, windowLevelNormalize
+from roughSeg.utils import k_fold_split_train_val_test, get_logger, getFiles, windowLevelNormalize
 import roughSeg.deepmind_metrics as deepmind_metrics
 
 source_dir = "/data/FLARE21/training_data_256/"
@@ -25,7 +27,7 @@ def main():
 
     # get stuff
     imagedir = os.path.join(source_dir, "scaled_ims/")
-    maskdir = os.path.join(source_dir, "scaled_masks/")
+    maskdir = "/data/FLARE21/training_data/TrainingMask/"
     dataset_size = len(sorted(getFiles(imagedir)))
     all_fnames = sorted(getFiles(imagedir))
     spacings = np.load(os.path.join(source_dir, "spacings_scaled.npy"))[:,[2,0,1]]    # change order from (AP,LR,CC) to (CC,AP,LR)
@@ -64,8 +66,12 @@ def main():
             # load image and normalise
             ct_im = np.load(os.path.join(imagedir, test_fname))
             ct_im = windowLevelNormalize(ct_im, level=50, window=400)[np.newaxis, np.newaxis] # add dummy batch and channels axes
-            # load gold standard segmentation
-            gold_mask = np.load(os.path.join(maskdir, test_fname))
+            # load gold standard segmentation in full resolution
+            sitk_mask = sitk.ReadImage(os.path.join(maskdir, test_fname.replace('.npy','.nii.gz')))
+            gold_mask = sitk.GetArrayFromImage(sitk_mask).astype(float)
+            if sitk_mask.GetDirection()[-1] == -1:
+                mask = np.flip(mask, axis=0)
+                mask = np.flip(mask, axis=2)
             # run forward pass
             t = time.time()
             prediction = model(torch.tensor(ct_im, dtype=torch.float).to('cuda'))
@@ -74,10 +80,22 @@ def main():
             prediction = torch.squeeze(prediction)
             prediction = torch.argmax(prediction, dim=0)
             prediction = prediction.cpu().numpy().astype(int)
+            # drop the body and label the kidneys together          # OAR labels : 1 - Body, 2 - Liver, 3 - Kidney L, 4 - Kidney R, 5 - Spleen, 6 - Pancreas
+            prediction -= 1                                         # -> OAR labels : 0 - Body, 1 - Liver, 2 - Kidney L, 3 - Kidney R, 4 - Spleen, 5 - Pancreas
+            prediction[prediction >= 3] -= 1                        # -> OAR labels : 0 - Body, 1 - Liver, 2 - Kidneys, 3 - Spleen, 4 - Pancreas
+            prediction = np.clip(prediction, 0, prediction.max())   # -> OAR labels : 0 - Background, 1 - Liver, 2 - Kidneys, 3 - Spleen, 4 - Pancreas
+            # rescale the prediction to match the full-resolution mask
+            scale_factor = np.array(gold_mask.shape) / np.array(prediction.shape)
+            prediction = np.round(resize(prediction, output_shape=gold_mask.shape, order=0, anti_aliasing=False, preserve_range=True)).astype(np.uint8)
             # save output
-            np.save(os.path.join(output_dir, "test_segs/", 'pred_'+test_fname), prediction)
+            np.save(os.path.join(output_dir, "full_res_test_segs/", 'pred_'+test_fname), prediction)
             # get spacing for this image
-            spacing = spacings[test_ind]
+            spacing = spacings[test_ind] * scale_factor
+            try:
+                assert(spacing[[1,2,0]] == np.array(sitk_mask.GetSpacing()))
+            except AssertionError:
+                print(f"{spacing[[1,2,0]]} != {np.array(sitk_mask.GetSpacing())} ... need to check this or close enough?")
+                exit(1)
             # get present labels
             labels_present = labels_present_all[test_ind]
             # calculate metrics
@@ -105,7 +123,7 @@ def main():
                 res[fdx, pat_idx, organ_idx, 1] = surface_DSC
 
     # save results
-    np.save(os.path.join(output_dir, "results_grid.npy"), res)
+    np.save(os.path.join(output_dir, "full_res_results_grid.npy"), res)
 
     # Romeo Dunn
     return
