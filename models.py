@@ -170,6 +170,34 @@ class light_segmenter(nn.Module):
             logger.info("Loaded layers from previous best checkpoint:")
             logger.info([k for k, v in list(renamed_dict.items())])
 
+class bottleneck_module(nn.Module):
+    def __init__(self, in_channels, out_channels, p_drop=0.25):
+        super(bottleneck_module, self).__init__()
+        self.bottleneck_conv = nn.Sequential(
+            nn.Conv3d(in_channels=in_channels, out_channels=in_channels//2, kernel_size=(1,1,1)),
+            nn.BatchNorm3d(in_channels//2),
+            nn.ReLU(inplace=True),
+            nn.Dropout3d(p=p_drop, inplace=True),
+            nn.Conv3d(in_channels=in_channels//2, out_channels=in_channels//2, kernel_size=(3,3,3), padding=1),
+            nn.BatchNorm3d(in_channels//2),
+            nn.ReLU(inplace=True),
+            nn.Dropout3d(p=p_drop, inplace=True),
+            nn.Conv3d(in_channels=in_channels//2, out_channels=out_channels, kernel_size=(3,3,3), padding=1),
+            nn.BatchNorm3d(out_channels),
+            nn.ReLU(inplace=True),
+            nn.Dropout3d(p=p_drop, inplace=True),
+        )
+        if in_channels != out_channels:
+            self.res_conv = nn.Sequential(
+                nn.Conv3d(in_channels=in_channels, out_channels=out_channels, kernel_size=(1,1,1)),
+                nn.BatchNorm3d(out_channels),
+                nn.ReLU(inplace=True),
+            )
+    def forward(self, x):
+        if self.res_conv is not None:
+            return self.bottleneck_conv(x) + self.res_conv(x)
+        else:
+            return self.bottleneck_conv(x) + x
 
 class conv_module(nn.Module):
     def __init__(self, in_channels, out_channels, p_drop=0.25):
@@ -197,7 +225,7 @@ class conv_module(nn.Module):
             return self.double_conv(x) + x
 
 class resize_conv(nn.Module):
-    def __init__(self, in_channels, out_channels, p_drop):
+    def __init__(self, in_channels, out_channels, p_drop, scale_factor=(2,2,2)):
         super(resize_conv, self).__init__()
         self.resize_conv = nn.Sequential(
             nn.Conv3d(in_channels=in_channels, out_channels=out_channels, kernel_size=(3,3,3), padding=1),
@@ -205,8 +233,9 @@ class resize_conv(nn.Module):
             nn.ReLU(inplace=True),
             nn.Dropout3d(p=p_drop, inplace=True),
         )
+        self.scale_factor = scale_factor
     def forward(self, x):
-        x = F.interpolate(x, scale_factor=2, mode='trilinear', align_corners=False)
+        x = F.interpolate(x, scale_factor=self.scale_factor, mode='trilinear', align_corners=False)
         return self.resize_conv(x)
 
 class yolo_segmenter_simplified(nn.Module):
@@ -217,24 +246,24 @@ class yolo_segmenter_simplified(nn.Module):
         self.yolo_bn = nn.BatchNorm3d(16)
         self.yolo_drop = nn.Dropout3d(p=p_drop)
         # conv layers set 1 - down 1
-        self.down_conv_1 = conv_module(in_channels=16, out_channels=32, p_drop=p_drop)
+        self.down_conv_1 = bottleneck_module(in_channels=16, out_channels=32, p_drop=p_drop)
         # conv layers set 2 - down 2
-        self.down_conv_2 = conv_module(in_channels=32, out_channels=64, p_drop=p_drop)
+        self.down_conv_2 = bottleneck_module(in_channels=32, out_channels=64, p_drop=p_drop)
         # conv layers set 3 - down 3
-        self.down_conv_3 = conv_module(in_channels=64, out_channels=128, p_drop=p_drop)
+        self.down_conv_3 = bottleneck_module(in_channels=64, out_channels=128, p_drop=p_drop)
         # conv layers set 4 - base
-        self.base_conv = conv_module(in_channels=128, out_channels=256, p_drop=p_drop)
+        self.base_conv = bottleneck_module(in_channels=128, out_channels=256, p_drop=p_drop)
         # upsample convolution and up set 1
         self.upsample_1 = resize_conv(in_channels=256, out_channels=256, p_drop=p_drop)
-        self.up_conv_1 = conv_module(in_channels=128+256, out_channels=128, p_drop=p_drop)
+        self.up_conv_1 = bottleneck_module(in_channels=128+256, out_channels=128, p_drop=p_drop)
         # upsample 2 and up 2
         self.upsample_2 = resize_conv(in_channels=128, out_channels=128, p_drop=p_drop)
-        self.up_conv_2 = conv_module(in_channels=64+128, out_channels=64, p_drop=p_drop)
+        self.up_conv_2 = bottleneck_module(in_channels=64+128, out_channels=64, p_drop=p_drop)
         # upsample and up 3
         self.upsample_3 = resize_conv(in_channels=64, out_channels=64, p_drop=p_drop)
-        self.up_conv_3 = conv_module(in_channels=32+64, out_channels=32, p_drop=p_drop)
+        self.up_conv_3 = bottleneck_module(in_channels=32+64, out_channels=32, p_drop=p_drop)
         # upsample 4 and prediction convolution
-        self.upsample_4 = resize_conv(in_channels=32, out_channels=32, p_drop=p_drop)
+        self.upsample_4 = resize_conv(in_channels=32, out_channels=32, p_drop=p_drop, scale_factor=(1,2,2))
         self.pred = nn.Conv3d(in_channels=32, out_channels=int(n_classes), kernel_size=1)
 
     @torch.cuda.amp.autocast()
