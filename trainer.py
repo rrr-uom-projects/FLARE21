@@ -111,6 +111,7 @@ class segmenter_trainer:
         self.logger.info(model)
         self.model = model
         self.optimizer = optimizer
+        self.lr = self.optimizer.param_groups[0]['lr']
         self.scheduler = lr_scheduler
         self.device = device
         self.train_loader = train_loader
@@ -204,9 +205,15 @@ class segmenter_trainer:
 
         # adjust learning rate if necessary
         self.scheduler.step(eval_score)
-
+        
+        # if leraning rate is adjusted, reset to previous best model state
+        new_lr = self.optimizer.param_groups[0]['lr']
+        if new_lr != self.lr:
+            self.model.load_best(self.checkpoint_dir, self.logger)
+            self.lr = new_lr
+            
         # log current learning rate in tensorboard
-        self._log_lr()
+        self._log_lr(new_lr)
 
         # remember best validation metric
         improved = True if self._is_best_eval_score(eval_score) else False
@@ -359,9 +366,8 @@ class segmenter_trainer:
         }, is_best, checkpoint_dir=self.checkpoint_dir,
             logger=self.logger)
 
-    def _log_lr(self):
-        lr = self.optimizer.param_groups[0]['lr']
-        self.writer.add_scalar('learning_rate', lr, self.num_iterations)
+    def _log_lr(self, new_lr):
+        self.writer.add_scalar('learning_rate', new_lr, self.num_iterations)
 
     def _log_new_best(self, eval_score):
         self.writer.add_scalar('best_val_loss', eval_score, self.num_iterations)
