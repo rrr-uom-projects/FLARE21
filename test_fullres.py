@@ -120,14 +120,17 @@ def main():
                     logger.info(f"{test_fname} missing {organs[organ_idx]}, skipping...")
                     continue
                 # Need to binarise the masks for the metric computation
-                gs = np.zeros(shape=gold_mask.shape)
-                pred = np.zeros(shape=prediction.shape)
-                gs[(gold_mask==organ_num)] = 1
-                pred[(prediction==organ_num)] = 1
+                gs = (gold_mask==organ_num).astype(int)
+                pred = (prediction==organ_num).astype(int)
                 # post-processing using scipy.ndimage.label to eliminate extraneous voxels
-                labels, num_features = ndimage.label(input=pred, structure=np.ones((3,3,3)))
-                sizes = ndimage.sum(pred, labels, range(num_features+1))
-                pred[(labels!=np.argmax(sizes))] = 0
+                labels, num_features = ndimage.label(input=pred)
+                if num_features > 1:
+                    # disconnected bits present, iterate over them to check which to keep
+                    # if less than 20% the volume of the primary region, get rid
+                    primary_vol_threshold = (labels==1).sum() * 0.20
+                    for feature_label in range(2, num_features+1):
+                        if primary_vol_threshold > (labels==feature_label).sum():
+                            pred[labels==feature_label] = 0
                 # compute the surface distances
                 surface_distances = deepmind_metrics.compute_surface_distances(gs.astype(bool), pred.astype(bool), spacing)
                 # compute desired metric
