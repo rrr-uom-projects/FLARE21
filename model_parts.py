@@ -144,3 +144,23 @@ class asym_bottleneck_module(nn.Module):
             return self.bottleneck_conv(x) + self.res_conv(x)
         else:
             return self.bottleneck_conv(x) + x
+
+class bridge_module(nn.Module):
+    def __init__(self, channels, layers, p_drop=0.25):
+        super(bridge_module, self).__init__()
+        self.conv_bridge = nn.ModuleList([])
+        for x in range(layers):
+            self.conv_bridge.append(nn.Sequential(
+                nn.Conv3d(in_channels=channels, out_channels=channels, kernel_size=(3,3,3), padding=1),
+                nn.BatchNorm3d(channels),
+                nn.ReLU(inplace=True),
+                nn.Dropout3d(p=p_drop, inplace=True),
+                nn.Conv3d(in_channels=channels, out_channels=channels, kernel_size=(3,3,3), padding=1),
+                nn.BatchNorm3d(channels),
+                nn.ReLU(inplace=True),
+                nn.Dropout3d(p=p_drop, inplace=True),
+                ))
+    def forward(self, x):
+        for brick in self.conv_bridge:
+            x = brick(x) + x
+        return x
