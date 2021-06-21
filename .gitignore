@@ -19,3 +19,5 @@ __pycache__/model_parts.cpython-38.pyc
 ViT/runs/*
 ViT/utils/__pycache__/*
 ViT/model/__pycache__/*
+preprocessing_bits.ipynb
+roughSeg/check_missing_labels.ipynb
