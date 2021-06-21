@@ -278,11 +278,11 @@ class segmenter_trainer:
                     coords = self.find_coords(mask, sdx, 4)
                     fig2, (ax3, ax4, ax5) = plt.subplots(1, 3, figsize=(15, 5), tight_layout=True)
                     ax_slice = ct_im[which_to_show, 0, coords[0]].cpu().numpy().astype(float)             # <-- batch_num, contrast_channel, ax_slice
-                    ax3.imshow(ax_slice, aspect=1.0, cmap='Greys_r')
+                    ax3.imshow(np.rot90(ax_slice, 2), aspect=1.0, cmap='Greys_r')
                     ax_slice = mask[coords[0]].astype(float)
-                    ax4.imshow(ax_slice, aspect=1.0, cmap='nipy_spectral', vmin=0, vmax=6)
+                    ax4.imshow(np.rot90(ax_slice, 2), aspect=1.0, cmap='nipy_spectral', vmin=0, vmax=6)
                     ax_slice = output[coords[0]].astype(float)
-                    ax5.imshow(ax_slice, aspect=1.0, cmap='nipy_spectral', vmin=0, vmax=6)
+                    ax5.imshow(np.rot90(ax_slice, 2), aspect=1.0, cmap='nipy_spectral', vmin=0, vmax=6)
                     self.writer.add_figure(tag='Kidneys_pred', figure=fig2, global_step=self.num_epoch)
                     fig2.savefig(os.path.join(self.fig_dir, 'Kidneys_pred_'+str(self.num_epoch)+'.png'))
                     
@@ -304,11 +304,11 @@ class segmenter_trainer:
                     coords = self.find_coords(mask, sdx)
                     fig4, (ax9, ax10, ax11) = plt.subplots(1, 3, figsize=(15, 5), tight_layout=True)
                     ax_slice = ct_im[which_to_show, 0, coords[0]].cpu().numpy().astype(float)             # <-- batch_num, contrast_channel, ax_slice
-                    ax9.imshow(ax_slice, aspect=1.0, cmap='Greys_r')
+                    ax9.imshow(np.rot90(ax_slice, 2), aspect=1.0, cmap='Greys_r')
                     ax_slice = mask[coords[0]].astype(float)
-                    ax10.imshow(ax_slice, aspect=1.0, cmap='nipy_spectral', vmin=0, vmax=6)
+                    ax10.imshow(np.rot90(ax_slice, 2), aspect=1.0, cmap='nipy_spectral', vmin=0, vmax=6)
                     ax_slice = output[coords[0]].astype(float)
-                    ax11.imshow(ax_slice, aspect=1.0, cmap='nipy_spectral', vmin=0, vmax=6)
+                    ax11.imshow(np.rot90(ax_slice, 2), aspect=1.0, cmap='nipy_spectral', vmin=0, vmax=6)
                     self.writer.add_figure(tag='Pancreas_pred', figure=fig4, global_step=self.num_epoch)
                     fig4.savefig(os.path.join(self.fig_dir, 'Pancreas_pred_'+str(self.num_epoch)+'.png'))
                 
