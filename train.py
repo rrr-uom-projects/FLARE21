@@ -9,12 +9,12 @@ import random
 import os
 import argparse as ap
 
-from models import roughSegmenter
-from Trainers import roughSegmenter_trainer
-from utils import k_fold_split_train_val_test, get_logger, get_number_of_learnable_parameters, getFiles, windowLevelNormalize
+from models import light_segmenter, yolo_segmenter
+from trainer import segmenter_trainer
+from roughSeg.utils import k_fold_split_train_val_test, get_logger, get_number_of_learnable_parameters, getFiles, windowLevelNormalize
 
-imagedir = "/data/FLARE21/training_data/scaled_ims/"
-maskdir = "/data/FLARE21/training_data/scaled_masks/"
+source_dir = "/data/FLARE21/training_data_256/"
+input_size = (96,256,256)
 
 def setup_argparse():
     parser = ap.ArgumentParser(prog="Main training program for 3D location-finding network \"headhunter\"")
@@ -28,13 +28,17 @@ def main():
     setup_argparse()
     global args
 
-    # decide checkpoint directory
-    checkpoint_dir = "/data/FLARE21/models/roughSegmenter/fold"+str(args.fold_num)
+    # set directories
+    checkpoint_dir = "/data/FLARE21/models/yolo_segmenter/fold"+str(args.fold_num)
+    imagedir = os.path.join(source_dir, "scaled_ims/")
+    maskdir = os.path.join(source_dir, "scaled_masks/")
+
     # Create main logger
     logger = get_logger('organHunter_Training')
 
     # Create the model
-    model = roughSegmenter(n_classes=6, in_channels=1, p_drop=0)
+    n_classes = 7
+    model = yolo_segmenter(n_classes=n_classes, in_channels=1, p_drop=0)
 
     for param in model.parameters():
         param.requires_grad = True
@@ -45,30 +49,33 @@ def main():
 
     # Log the number of learnable parameters
     logger.info(f'Number of learnable params {get_number_of_learnable_parameters(model)}')
-    train_BS = int(8)
-    val_BS = int(5)
+    train_BS = int(3)
+    val_BS = int(2)
     train_workers = int(4)
     val_workers = int(2)
 
     # allocate ims to train, val and test
-    dataset_size = 92 #len(sorted(getFiles(imagedir)))
+    dataset_size = 72 # len(sorted(getFiles(imagedir)))
     train_inds, val_inds, test_inds = k_fold_split_train_val_test(dataset_size, fold_num=args.fold_num, seed=230597)
 
+    # get label frequencies for weighted loss fns
+    label_freq = np.load(os.path.join(source_dir, "label_freq.npy"))
+
     # Create them dataloaders
-    train_data = roughSegmenter_Dataset(imagedir=imagedir, maskdir=maskdir, image_inds=train_inds, shift_augment=True, rotate_augment=True, scale_augment=True, flip_augment=False)
+    train_data = segmenter_Dataset(imagedir=imagedir, maskdir=maskdir, image_inds=train_inds, n_classes=n_classes, shift_augment=True, rotate_augment=True, scale_augment=True, flip_augment=False)
     train_loader = DataLoader(dataset=train_data, batch_size=train_BS, shuffle=True, pin_memory=False, num_workers=train_workers, worker_init_fn=lambda _: np.random.seed(int(torch.initial_seed())%(2**32-1)))
-    val_data = roughSegmenter_Dataset(imagedir=imagedir, maskdir=maskdir, image_inds=val_inds, shift_augment=False, rotate_augment=True, scale_augment=True, flip_augment=False)
+    val_data = segmenter_Dataset(imagedir=imagedir, maskdir=maskdir, image_inds=val_inds, n_classes=n_classes, shift_augment=False, rotate_augment=False, scale_augment=False, flip_augment=False)
     val_loader = DataLoader(dataset=val_data, batch_size=val_BS, shuffle=True, pin_memory=False, num_workers=val_workers, worker_init_fn=lambda _: np.random.seed(int(torch.initial_seed())%(2**32-1)))
 
     # Create the optimizer
     optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr = 0.005)
 
     # Create learning rate adjustment strategy
-    lr_scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=175, verbose=True)
+    lr_scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=75, verbose=True)
     
     # Create model trainer
-    trainer = roughSegmenter_trainer(model=model, optimizer=optimizer, lr_scheduler=lr_scheduler, device=device, train_loader=train_loader, 
-                                    val_loader=val_loader, logger=logger, checkpoint_dir=checkpoint_dir, max_num_epochs=1000, patience=500, iters_to_accumulate=1)
+    trainer = segmenter_trainer(model=model, optimizer=optimizer, lr_scheduler=lr_scheduler, device=device, train_loader=train_loader, val_loader=val_loader, 
+                                label_freq=label_freq, logger=logger, checkpoint_dir=checkpoint_dir, max_num_epochs=1000, patience=200, iters_to_accumulate=2)
     
     # Start training
     trainer.fit()
@@ -76,16 +83,18 @@ def main():
     # Romeo Dunn
     return
     
-class roughSegmenter_Dataset(data.Dataset):
-    def __init__(self, imagedir, maskdir, image_inds, shift_augment=True, rotate_augment=True, scale_augment=True, flip_augment=False):
+class segmenter_Dataset(data.Dataset):
+    def __init__(self, imagedir, maskdir, image_inds, n_classes, shift_augment=True, rotate_augment=True, scale_augment=True, flip_augment=False):
         self.imagedir = imagedir
         self.maskdir = maskdir
         self.availableImages = [sorted(getFiles(imagedir))[ind] for ind in image_inds]
+        self.image_inds = image_inds
+        self.n_classes = n_classes
         self.shifts = shift_augment
         self.flips = flip_augment
         self.rotations = rotate_augment
         self.scaling = scale_augment
-        self.ignore_oars = np.load("/data/FLARE21/training_data/labels_present.npy")
+        self.ignore_oars = np.load(os.path.join(source_dir, "labels_present.npy"))
 
     def __getitem__(self, idx):
         if torch.is_tensor(idx):
@@ -94,18 +103,19 @@ class roughSegmenter_Dataset(data.Dataset):
         #spacing = np.load("/data/FLARE21/training_data/spacings_scaled.npy")[idx][[2,0,1]]
         ct_im = np.load(os.path.join(self.imagedir, imageToUse))
         mask = np.load(os.path.join(self.maskdir, imageToUse))
-        ignore_index = self.ignore_oars[idx]
-        
+        ignore_index = self.ignore_oars[self.image_inds[idx]]
+
         # Augmentations
         if self.shifts:
+            mx_x, mx_yz = 2, 4
             # find shift values
-            cc_shift, ap_shift, lr_shift = random.randint(-2,2), random.randint(-4,4), random.randint(-4,4)
+            cc_shift, ap_shift, lr_shift = random.randint(-mx_x,mx_x), random.randint(-mx_yz,mx_yz), random.randint(-mx_yz,mx_yz)
             # pad for shifting into
-            ct_im = np.pad(ct_im, pad_width=((2,2),(4,4),(4,4)), mode='constant', constant_values=-1024)
-            mask = np.pad(mask, pad_width=((2,2),(4,4),(4,4)), mode='constant', constant_values=0)
+            ct_im = np.pad(ct_im, pad_width=((mx_x,mx_x),(mx_yz,mx_yz),(mx_yz,mx_yz)), mode='constant', constant_values=-1024)
+            mask = np.pad(mask, pad_width=((mx_x,mx_x),(mx_yz,mx_yz),(mx_yz,mx_yz)), mode='constant', constant_values=0)
             # crop to complete shift
-            ct_im = ct_im[2+cc_shift:66+cc_shift, 4+ap_shift:132+ap_shift, 4+lr_shift:132+lr_shift]
-            mask = mask[2+cc_shift:66+cc_shift, 4+ap_shift:132+ap_shift, 4+lr_shift:132+lr_shift]
+            ct_im = ct_im[mx_x+cc_shift:input_size[0]+mx_x+cc_shift, mx_yz+ap_shift:input_size[1]+mx_yz+ap_shift, mx_yz+lr_shift:input_size[2]+mx_yz+lr_shift]
+            mask = mask[mx_x+cc_shift:input_size[0]+mx_x+cc_shift, mx_yz+ap_shift:input_size[1]+mx_yz+ap_shift, mx_yz+lr_shift:input_size[2]+mx_yz+lr_shift]
 
         if self.rotations and random.random()<0.5:
             # taking implementation from 3DSegmentationNetwork which can be applied -> rotations in the axial plane only I should think? -10->10 degrees?
@@ -115,7 +125,7 @@ class roughSegmenter_Dataset(data.Dataset):
 
         if self.scaling and random.random()<0.5:
             # same here -> zoom between 80-120%
-            scale_factor = np.clip(np.random.normal(loc=1.0,scale=0.06), 0.8, 1.2)
+            scale_factor = np.clip(np.random.normal(loc=1.0,scale=0.05), 0.8, 1.2)
             ct_im = self.scale(ct_im, scale_factor, is_mask=False)
             mask = self.scale(mask, scale_factor, is_mask=True)
         
@@ -123,6 +133,11 @@ class roughSegmenter_Dataset(data.Dataset):
             raise NotImplementedError # LR flips shouldn't be applied I don't think
     
         # perform window-levelling here, create 3 channels
+
+        ###
+        # This is where to add in extra augmentations and channels
+        ###
+
         #ct_im3 = np.zeros(shape=(3,) + ct_im.shape)
         #ct_im3[0] = windowLevelNormalize(ct_im, level=50, window=400)   # abdomen "soft tissues"
         #ct_im3[1] = windowLevelNormalize(ct_im, level=30, window=150)   # liver
@@ -132,7 +147,8 @@ class roughSegmenter_Dataset(data.Dataset):
         ct_im = windowLevelNormalize(ct_im, level=50, window=400)[np.newaxis]   # abdomen "soft tissues"
         
         # use one-hot masks
-        mask = (np.arange(6) == mask[...,None]).astype(int)
+        mask = (np.arange(self.n_classes) == mask[...,None]).astype(int)
+        mask = np.transpose(mask, axes=(3,0,1,2))
 
         # send it
         return {'ct_im': ct_im, 'mask': mask, 'ignore_index': ignore_index}

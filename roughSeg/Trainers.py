@@ -10,6 +10,44 @@ import utils
 import time
 from scipy.ndimage import center_of_mass
 
+def multiclass_simple_dice_loss(prediction, mask, ignore_index, useWeights=True):
+    # prediction is (B,C,H,W,D)
+    # target_mask NEEDS to be one-hot encoded [(B,C,H,W,D) <-- one-hot encoded]
+    # Use weights for highly unbalanced classes
+    num_classes = prediction.size()[1]
+    if useWeights:
+        label_count = np.array([358074923, 14152955, 1698684, 1643118,  2153875, 812381])
+        class_weights = np.power(label_count.sum() / label_count, 1/3)
+        class_weights /= np.sum(class_weights)
+    else:
+        class_weights = np.full((num_classes), 1/num_classes)   # flat normalised
+    smooth = 1.
+    loss = 0.
+    dice_pred = F.softmax(prediction, dim=1)
+
+    if (ignore_index==False).any():
+        # we are missing gold standard masks for some structures
+        # change all predicted pixels of the missing structure to background -> 0
+        # that way the loss will be 0 in regions of missing gold standard labels
+        ablation_mask = torch.zeros_like(dice_pred, dtype=bool)
+        missing_inds = torch.where(~ignore_index)
+        for imdx, sdx in zip(missing_inds[0], missing_inds[1]):
+            ablation_mask[imdx, sdx+1] = True
+        dice_pred = dice_pred.masked_fill(ablation_mask, 0)
+
+    for c in range(num_classes):
+        pred_flat = dice_pred[:,c].reshape(-1)
+        mask_flat = mask[:,c].reshape(-1)
+        intersection = (pred_flat*mask_flat).sum()
+        w = class_weights[c]
+        # numerator
+        num = 2. * intersection + smooth
+        # denominator
+        denom = pred_flat.sum() + mask_flat.sum() + smooth
+        # loss
+        loss += w*(1 - (num/denom))
+    return loss
+
 def exp_log_loss(prediction, mask, ignore_index, device='cuda'):
     """
     paper: 3D Segmentation with Exponential Logarithmic Loss for Highly Unbalanced Object Sizes
@@ -29,8 +67,11 @@ def exp_log_loss(prediction, mask, ignore_index, device='cuda'):
         ablation_mask = torch.zeros_like(dice_pred, dtype=bool)
         missing_inds = torch.where(~ignore_index)
         for imdx, sdx in zip(missing_inds[0], missing_inds[1]):
-            ablation_mask[imdx][dice_pred.clone().detach()[imdx]==sdx] = True
+            np.save("/data/FLARE21/training_data/preproc.npy", np.argmax(dice_pred[imdx].clone().detach().cpu().numpy(), axis=0))
+            ablation_mask[imdx, sdx+1] = True
         dice_pred = dice_pred.masked_fill(ablation_mask, 0)
+        np.save("/data/FLARE21/training_data/postproc.npy", np.argmax(dice_pred[imdx].clone().detach().cpu().numpy(), axis=0))
+        np.save("/data/FLARE21/training_data/maskproc.npy", np.argmax(mask[imdx].clone().detach().cpu().numpy(), axis=3))
 
     pred_flat = dice_pred.view(-1, num_classes)
     mask_flat = mask.view(-1, num_classes)
@@ -52,9 +93,9 @@ def exp_log_loss(prediction, mask, ignore_index, device='cuda'):
         # same again - missing inds retained from above
         ablation_mask = torch.zeros_like(xe_pred, dtype=bool)
         for imdx, sdx in zip(missing_inds[0], missing_inds[1]):
-            ablation_mask[imdx][xe_pred.clone().detach()[imdx]==sdx] = True
+            ablation_mask[imdx, sdx+1] = True
         xe_pred = xe_pred.masked_fill(ablation_mask, 0)
-    mask = torch.argmax(mask, dim=4)
+    mask = torch.argmax(mask, dim=1)
     xe_loss = torch.mean(torch.pow(torch.clamp(torch.nn.NLLLoss(weight=torch.FloatTensor(class_weights).to(device), reduction='none')(xe_pred, mask), min=1e-6), gamma))
 
     w_dice = 0.5
@@ -209,7 +250,7 @@ class roughSegmenter_trainer:
                     # plot ims -> - $tensorboard --logdir=MODEL_DIRECTORY --port=6006 --bind_all --samples_per_plugin="images=0"
 
                     # unfortunately have to transfer entire volumes here, needs a np array to use scipy's center_of_mass
-                    mask = torch.argmax(mask, dim=4)[which_to_show].cpu().numpy()
+                    mask = torch.argmax(mask, dim=1)[which_to_show].cpu().numpy()
                     output = torch.argmax(output, dim=1)[which_to_show].cpu().numpy()
 
                     # CoM of targets plots
@@ -274,7 +315,9 @@ class roughSegmenter_trainer:
             # forward pass
             output = self.model(ct_im)
             # use exp_log_loss
-            loss = exp_log_loss(output, mask, ignore_index)
+            #loss = exp_log_loss(output, mask, ignore_index)
+            # or use simpler multi-class weighted dice loss
+            loss = multiclass_simple_dice_loss(output, mask, ignore_index)
             return output, loss
 
     def find_coords(self, mask, sdx, sdx2=None):

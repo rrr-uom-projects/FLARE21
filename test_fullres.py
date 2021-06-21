@@ -1,0 +1,132 @@
+import torch
+import numpy as np
+from scipy import ndimage
+import os
+import time
+import SimpleITK as sitk
+from scipy.ndimage import resize
+
+from models import light_segmenter, yolo_segmenter, bottleneck_yolo_segmenter, asymmetric_yolo_segmenter
+from roughSeg.utils import k_fold_split_train_val_test, get_logger, getFiles, windowLevelNormalize
+import roughSeg.deepmind_metrics as deepmind_metrics
+
+source_dir = "/data/FLARE21/training_data_256/"
+output_dir = "/data/FLARE21/results/light_segmenter/"
+input_size = (96,256,256)
+folds = [1,2,3,4,5]
+organs = ["liver", "kidney L", "kidney R", "spleen", "pancreas"]
+
+def dice(a, b):
+    a = a.reshape(-1)
+    b = b.reshape(-1)
+    return (2. * (a*b).sum()) / (a.sum() + b.sum())
+
+def main():
+    # Create logger
+    logger = get_logger('roughSeg_testing')
+
+    # get stuff
+    imagedir = os.path.join(source_dir, "scaled_ims/")
+    maskdir = "/data/FLARE21/training_data/TrainingMask/"
+    dataset_size = len(sorted(getFiles(imagedir)))
+    all_fnames = sorted(getFiles(imagedir))
+    spacings = np.load(os.path.join(source_dir, "spacings_scaled.npy"))[:,[2,0,1]]    # change order from (AP,LR,CC) to (CC,AP,LR)
+    labels_present_all = np.load(os.path.join(source_dir, "labels_present.npy"))
+
+    # Create the model
+    model = light_segmenter(n_classes=7, in_channels=1, p_drop=0)
+
+    # put the model on GPU
+    model.to('cuda')
+
+    # setup result grids
+    res = np.full(shape=(len(folds), dataset_size, 5, 2), fill_value=np.nan)
+
+    # iterate over folds
+    for fdx, fold_num in enumerate(folds):
+        # get checkpoint dir
+        checkpoint_dir = f"/data/FLARE21/models/roughSegmenter/fold{fold_num}/"
+
+        # load in the best model version
+        model.load_best(checkpoint_dir, logger)
+        for param in model.parameters():
+            param.requires_grad = False
+
+        # fix model
+        model.eval()
+
+        # allocate ims to train, val and test
+        train_inds, val_inds, test_inds = k_fold_split_train_val_test(dataset_size, fold_num=fold_num, seed=230597)
+
+        # get test fnames
+        test_im_fnames = [all_fnames[ind] for ind in test_inds]
+
+        # iterate over each testing image
+        for pat_idx, (test_fname, test_ind) in enumerate(zip(test_im_fnames, test_inds)):
+            # load image and normalise
+            ct_im = np.load(os.path.join(imagedir, test_fname))
+            ct_im = windowLevelNormalize(ct_im, level=50, window=400)[np.newaxis, np.newaxis] # add dummy batch and channels axes
+            # load gold standard segmentation in full resolution
+            sitk_mask = sitk.ReadImage(os.path.join(maskdir, test_fname.replace('.npy','.nii.gz')))
+            gold_mask = sitk.GetArrayFromImage(sitk_mask).astype(float)
+            if sitk_mask.GetDirection()[-1] == -1:
+                mask = np.flip(mask, axis=0)
+                mask = np.flip(mask, axis=2)
+            # run forward pass
+            t = time.time()
+            prediction = model(torch.tensor(ct_im, dtype=torch.float).to('cuda'))
+            logger.info(f"{test_fname} seg. took {time.time()-t:.4f} seconds")
+            # change prediction from one-hot to mask and move back to cpu for metric calculation
+            prediction = torch.squeeze(prediction)
+            prediction = torch.argmax(prediction, dim=0)
+            prediction = prediction.cpu().numpy().astype(int)
+            # drop the body and label the kidneys together          # OAR labels : 1 - Body, 2 - Liver, 3 - Kidney L, 4 - Kidney R, 5 - Spleen, 6 - Pancreas
+            prediction -= 1                                         # -> OAR labels : 0 - Body, 1 - Liver, 2 - Kidney L, 3 - Kidney R, 4 - Spleen, 5 - Pancreas
+            prediction[prediction >= 3] -= 1                        # -> OAR labels : 0 - Body, 1 - Liver, 2 - Kidneys, 3 - Spleen, 4 - Pancreas
+            prediction = np.clip(prediction, 0, prediction.max())   # -> OAR labels : 0 - Background, 1 - Liver, 2 - Kidneys, 3 - Spleen, 4 - Pancreas
+            # rescale the prediction to match the full-resolution mask
+            scale_factor = np.array(gold_mask.shape) / np.array(prediction.shape)
+            prediction = np.round(resize(prediction, output_shape=gold_mask.shape, order=0, anti_aliasing=False, preserve_range=True)).astype(np.uint8)
+            # save output
+            np.save(os.path.join(output_dir, "full_res_test_segs/", 'pred_'+test_fname), prediction)
+            # get spacing for this image
+            spacing = spacings[test_ind] * scale_factor
+            try:
+                assert(spacing[[1,2,0]] == np.array(sitk_mask.GetSpacing()))
+            except AssertionError:
+                print(f"{spacing[[1,2,0]]} != {np.array(sitk_mask.GetSpacing())} ... need to check this or close enough?")
+                exit(1)
+            # get present labels
+            labels_present = labels_present_all[test_ind]
+            # calculate metrics
+            first_oar_idx = 1
+            for organ_idx, organ_num in enumerate(range(first_oar_idx, gold_mask.max()+1)):
+                # check if label present in gs, skip if not
+                if not labels_present[organ_idx]:
+                    logger.info(f"{test_fname} missing {organs[organ_idx]}, skipping...")
+                    continue
+                # Need to binarise the masks for the metric computation
+                gs = np.zeros(shape=gold_mask.shape)
+                pred = np.zeros(shape=prediction.shape)
+                gs[(gold_mask==organ_num)] = 1
+                pred[(prediction==organ_num)] = 1
+                # post-processing using scipy.ndimage.label to eliminate extraneous voxels
+                labels, num_features = ndimage.label(input=pred, structure=np.ones((3,3,3)))
+                sizes = ndimage.sum(pred, labels, range(num_features+1))
+                pred[(labels!=np.argmax(sizes))] = 0
+                # compute the surface distances
+                surface_distances = deepmind_metrics.compute_surface_distances(gs.astype(bool), pred.astype(bool), spacing)
+                # compute desired metric
+                surface_DSC = deepmind_metrics.compute_surface_dice_at_tolerance(surface_distances, tolerance_mm=5.)
+                # store result
+                res[fdx, pat_idx, organ_idx, 0] = dice(gs, pred)
+                res[fdx, pat_idx, organ_idx, 1] = surface_DSC
+
+    # save results
+    np.save(os.path.join(output_dir, "full_res_results_grid.npy"), res)
+
+    # Romeo Dunn
+    return
+
+if __name__ == '__main__':
+    main()
