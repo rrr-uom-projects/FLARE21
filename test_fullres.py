@@ -5,6 +5,8 @@ import os
 import time
 import SimpleITK as sitk
 from scipy.ndimage import resize
+import nvgpu
+from multiprocessing import Process, Queue
 
 from models import light_segmenter, yolo_segmenter, bottleneck_yolo_segmenter, asymmetric_yolo_segmenter
 from roughSeg.utils import k_fold_split_train_val_test, get_logger, getFiles, windowLevelNormalize
@@ -21,9 +23,21 @@ def dice(a, b):
     b = b.reshape(-1)
     return (2. * (a*b).sum()) / (a.sum() + b.sum())
 
+def gpu_mem(q):
+    maxM = 0
+    while True:
+        newM = nvgpu.gpu_info()[0]['mem_used']
+        if newM > maxM:
+            q.put(maxM := newM)
+
 def main():
     # Create logger
     logger = get_logger('roughSeg_testing')
+
+    # track gpu memory
+    q = Queue()
+    p = Process(target=gpu_mem, args=(q,))
+    p.start()
 
     # get stuff
     imagedir = os.path.join(source_dir, "scaled_ims/")
@@ -124,6 +138,11 @@ def main():
 
     # save results
     np.save(os.path.join(output_dir, "full_res_results_grid.npy"), res)
+
+    # get maximum gpu memory consumption
+    print(f"Maximum VRAM consumed: {q.get()}MB")
+    np.save(os.path.join(output_dir, "max_vram.npy"), np.array(q.get()))
+    p.terminate()
 
     # Romeo Dunn
     return
