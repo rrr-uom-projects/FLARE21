@@ -11,6 +11,7 @@ multiStageSeg/__pycache__/utils.cpython-36.pyc
 roughSeg/__pycache__/models.cpython-38.pyc
 roughSeg/__pycache__/Trainers.cpython-38.pyc
 roughSeg/__pycache__/utils.cpython-38.pyc
+roughSeg/__pycache__/utils.cpython-36.pyc
 roughSeg/__pycache__/deepmind_metrics.cpython-38.pyc
 __pycache__/models.cpython-38.pyc
 __pycache__/trainer.cpython-38.pyc
@@ -19,3 +20,6 @@ __pycache__/model_parts.cpython-38.pyc
 ViT/runs/*
 ViT/utils/__pycache__/*
 ViT/model/__pycache__/*
+__pycache__/*
+
+*.onnx
