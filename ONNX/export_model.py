@@ -7,14 +7,14 @@ import os
 import torch
 import onnx
 import onnxruntime as ort
-from onnxruntime import quantize_dynamic, QuantType
+from onnxruntime.quantization import quantize_dynamic, QuantType
 import numpy as np
 from argparse import ArgumentParser
 import sys
 sys.path.append('..')
 
 
-from models import bottleneck_yolo_segmenter
+from models import yolo_transpose_plusplus
 
 
 
@@ -27,11 +27,14 @@ parser.add_argument("--quantize", default=True, help="Quantize model to decrease
 args = parser.parse_args()
 
 
+def sigmoid(x):
+    return 1/(1+np.exp(-x))
+
 def to_numpy(x):
     return x.detach().cpu().numpy() if x.requires_grad else x.cpu().numpy()
 
 def export():
-    model  = bottleneck_yolo_segmenter(n_classes=7, in_channels=1, p_drop=0.25)
+    model  = yolo_transpose_plusplus(n_classes=7, in_channels=1, p_drop=0.25)
 
     #* Load trained model
     model.load_best(args.weights) #* Will default to GPU if detected
@@ -58,8 +61,8 @@ def export():
         ort_session = ort.InferenceSession(args.output + '.onnx')
         ort_inputs = {ort_session.get_inputs()[0].name: to_numpy(x)}
         ort_outputs = ort_session.run(None, ort_inputs)
-        np.testing.assert_allclose(to_numpy(output), 
-            ort_outputs[0], rtol=1e-03, atol=1e-05) #*rtol = relative tolerance; atol=absolute tolerance
+        np.testing.assert_allclose(sigmoid(to_numpy(output)), 
+            sigmoid(ort_outputs[0]), rtol=1e-03, atol=1e-05) #*rtol = relative tolerance; atol=absolute tolerance
         print('Outputs look good!')
 
     if args.quantize:
