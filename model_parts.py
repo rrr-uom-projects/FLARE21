@@ -20,6 +20,8 @@ class conv_module(nn.Module):
                 nn.BatchNorm3d(out_channels),
                 nn.ReLU(inplace=True),
             )
+        else:
+            self.res_conv = None
     def forward(self, x):
         if self.res_conv is not None:
             return self.double_conv(x) + self.res_conv(x)
@@ -39,6 +41,18 @@ class resize_conv(nn.Module):
     def forward(self, x):
         x = F.interpolate(x, scale_factor=self.scale_factor, mode='trilinear', align_corners=False)
         return self.resize_conv(x)
+
+class transpose_conv(nn.Module):
+    def __init__(self, in_channels, out_channels, p_drop, scale_factor=(2,2,2)):
+        super(transpose_conv, self).__init__()
+        self.transpose_conv = nn.Sequential(
+            nn.ConvTranspose3d(in_channels=in_channels, out_channels=out_channels, kernel_size=scale_factor, stride=scale_factor), # stride & kernel (1,2,2) gives (D_in, 2*H_in, 2*W_in)
+            nn.BatchNorm3d(out_channels),
+            nn.ReLU(inplace=True),
+            nn.Dropout3d(p=p_drop, inplace=True),
+        )
+    def forward(self, x):
+        return self.transpose_conv(x)
 
 class bottleneck_module(nn.Module):
     def __init__(self, in_channels, out_channels, p_drop=0.25):
@@ -144,3 +158,23 @@ class asym_bottleneck_module(nn.Module):
             return self.bottleneck_conv(x) + self.res_conv(x)
         else:
             return self.bottleneck_conv(x) + x
+
+class bridge_module(nn.Module):
+    def __init__(self, channels, layers, p_drop=0.25):
+        super(bridge_module, self).__init__()
+        self.conv_bridge = nn.ModuleList([])
+        for x in range(layers):
+            self.conv_bridge.append(nn.Sequential(
+                nn.Conv3d(in_channels=channels, out_channels=channels, kernel_size=(3,3,3), padding=1),
+                nn.BatchNorm3d(channels),
+                nn.ReLU(inplace=True),
+                nn.Dropout3d(p=p_drop, inplace=True),
+                nn.Conv3d(in_channels=channels, out_channels=channels, kernel_size=(3,3,3), padding=1),
+                nn.BatchNorm3d(channels),
+                nn.ReLU(inplace=True),
+                nn.Dropout3d(p=p_drop, inplace=True),
+                ))
+    def forward(self, x):
+        for brick in self.conv_bridge:
+            x = brick(x) + x
+        return x

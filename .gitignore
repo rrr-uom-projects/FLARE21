@@ -21,5 +21,7 @@ ViT/runs/*
 ViT/utils/__pycache__/*
 ViT/model/__pycache__/*
 __pycache__/*
-
 *.onnx
+preprocessing_bits.ipynb
+roughSeg/check_missing_labels.ipynb
+__pycache__/model_archive.cpython-38.pyc
