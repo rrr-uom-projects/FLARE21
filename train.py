@@ -9,7 +9,9 @@ import random
 import os
 import argparse as ap
 
-from models import light_segmenter, yolo_segmenter, bottleneck_yolo_segmenter, asymmetric_yolo_segmenter, asym_bottleneck_yolo_segmenter, bridged_yolo_segmenter
+from models import yolo_transpose_plusplus
+# light_segmenter, yolo_segmenter, bottleneck_yolo_segmenter, asymmetric_yolo_segmenter, asym_bottleneck_yolo_segmenter, 
+# bridged_yolo_segmenter, yolo_transpose, ytp_learnableWL 
 from trainer import segmenter_trainer
 from roughSeg.utils import k_fold_split_train_val_test, get_logger, get_number_of_learnable_parameters, getFiles, windowLevelNormalize
 
@@ -32,7 +34,7 @@ def main():
     global args
 
     # set directories
-    checkpoint_dir = "/data/FLARE21/models/bridged_yolo_segmenter/fold"+str(args.fold_num)
+    checkpoint_dir = "/data/FLARE21/models/full_runs/yolo_transpose_plusplus/fold"+str(args.fold_num)
     imagedir = os.path.join(source_dir, "scaled_ims/")
     maskdir = os.path.join(source_dir, "scaled_masks/")
 
@@ -41,7 +43,7 @@ def main():
 
     # Create the model
     n_classes = 7
-    model = bridged_yolo_segmenter(n_classes=n_classes, in_channels=1, p_drop=0)
+    model = yolo_transpose_plusplus(n_classes=n_classes, in_channels=2, p_drop=0)
 
     for param in model.parameters():
         param.requires_grad = True
@@ -52,13 +54,13 @@ def main():
 
     # Log the number of learnable parameters
     logger.info(f'Number of learnable params {get_number_of_learnable_parameters(model)}')
-    train_BS = int(2) # change 3->2 for asymmetric
+    train_BS = int(3) # change 3->2 for asymmetric
     val_BS = int(2)
     train_workers = int(4)
     val_workers = int(2)
 
     # allocate ims to train, val and test
-    dataset_size = 72 # len(sorted(getFiles(imagedir)))
+    dataset_size = len(sorted(getFiles(imagedir)))
     train_inds, val_inds, test_inds = k_fold_split_train_val_test(dataset_size, fold_num=args.fold_num, seed=230597)
 
     # get label frequencies for weighted loss fns
@@ -103,7 +105,7 @@ class segmenter_Dataset(data.Dataset):
         if torch.is_tensor(idx):
            idx = idx.tolist()
         imageToUse = self.availableImages[idx]
-        #spacing = np.load("/data/FLARE21/training_data/spacings_scaled.npy")[idx][[2,0,1]]
+        spacing = np.load(os.path.join(source_dir, "spacings_scaled.npy"))[idx][[2,0,1]]
         ct_im = np.load(os.path.join(self.imagedir, imageToUse))
         mask = np.load(os.path.join(self.maskdir, imageToUse))
         ignore_index = self.ignore_oars[self.image_inds[idx]]
@@ -131,6 +133,7 @@ class segmenter_Dataset(data.Dataset):
             scale_factor = np.clip(np.random.normal(loc=1.0,scale=0.05), 0.8, 1.2)
             ct_im = self.scale(ct_im, scale_factor, is_mask=False)
             mask = self.scale(mask, scale_factor, is_mask=True)
+            spacing /= scale_factor
         
         if self.flips:
             raise NotImplementedError # LR flips shouldn't be applied I don't think
@@ -141,20 +144,20 @@ class segmenter_Dataset(data.Dataset):
         # This is where to add in extra augmentations and channels
         ###
 
-        #ct_im3 = np.zeros(shape=(3,) + ct_im.shape)
-        #ct_im3[0] = windowLevelNormalize(ct_im, level=50, window=400)   # abdomen "soft tissues"
-        #ct_im3[1] = windowLevelNormalize(ct_im, level=30, window=150)   # liver
+        ct_im3 = np.zeros(shape=(2,) + ct_im.shape)
+        ct_im3[0] = windowLevelNormalize(ct_im, level=50, window=400)   # abdomen "soft tissues"
+        ct_im3[1] = windowLevelNormalize(ct_im, level=60, window=100)   # pancreas
         #ct_im3[2] = windowLevelNormalize(ct_im, level=400, window=1800) # spine bone level
 
         # start with a single soft tissue channel
-        ct_im = windowLevelNormalize(ct_im, level=50, window=400)[np.newaxis]   # abdomen "soft tissues"
+        #ct_im = windowLevelNormalize(ct_im, level=50, window=400)[np.newaxis]   # abdomen "soft tissues"
         
         # use one-hot masks
         mask = (np.arange(self.n_classes) == mask[...,None]).astype(int)
         mask = np.transpose(mask, axes=(3,0,1,2))
 
         # send it
-        return {'ct_im': ct_im, 'mask': mask, 'ignore_index': ignore_index}
+        return {'ct_im': ct_im, 'mask': mask, 'ignore_index': ignore_index, 'spacing': spacing}
         
     def __len__(self):
         return len(self.availableImages)

@@ -25,9 +25,9 @@ def split_kidneys(mask):
     mask_new[:,:,:256][(mask[:,:,:256] == 2)] = 2 # reassign the left kidney       -> OAR labels : 1 - Liver, 2 - Kidney L, 3 - Kidney R, 4 - Spleen, 5 - Pancreas
     return mask_new
 
-sizes_scaled = np.zeros((360,3))
-spacings_scaled = np.zeros((360,3))
-labels_present = np.empty(shape=(360,5), dtype=bool)
+sizes_scaled = np.zeros((361,3))
+spacings_scaled = np.zeros((361,3))
+labels_present = np.empty(shape=(361,5), dtype=bool)
 label_freq = np.zeros((7))
 for pdx, fname in enumerate(sorted(getFiles(imdir))):
     # load files
