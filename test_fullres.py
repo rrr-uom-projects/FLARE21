@@ -8,16 +8,21 @@ from skimage.transform import resize
 import nvgpu
 from multiprocessing import Process, Value
 
-from models import light_segmenter, yolo_segmenter, bottleneck_yolo_segmenter, asymmetric_yolo_segmenter, asym_bottleneck_yolo_segmenter, bridged_yolo_segmenter
+from model_archive import yolo_segmenter
+from models import superres_segmenter, fullRes_segmenter
+# light_segmenter, bottleneck_yolo_segmenter, asymmetric_yolo_segmenter, asym_bottleneck_yolo_segmenter, 
+# bridged_yolo_segmenter, yolo_transpose, yolo_transpose_plusplus, ytp_learnableWL
 from roughSeg.utils import k_fold_split_train_val_test, get_logger, getFiles, windowLevelNormalize
 import roughSeg.deepmind_metrics as deepmind_metrics
 
 source_dir = "/data/FLARE21/training_data_256/"
-output_dir = "/data/FLARE21/results/bottleneck_yolo_segmenter/"
-input_size = (96,256,256)
-folds = [1,2,3,4,5]
+input_dir = "/data/FLARE21/training_data/TrainingImg/"
+mask_dir = "/data/FLARE21/training_data/TrainingMask/"
+output_dir = "/data/FLARE21/results/fullRes_segmenter/"
+input_size = (96,512,512)
+folds = [1]#[1,2,3,4,5]
 organs = ["liver", "kidney L", "kidney R", "spleen", "pancreas"]
-base_vram = 19201
+base_vram = nvgpu.gpu_info()[0]['mem_used']
 
 def dice(a, b):
     a = a.reshape(-1)
@@ -32,7 +37,7 @@ def gpu_mem(maxM):
 
 def main():
     # Create logger
-    logger = get_logger('roughSeg_testing')
+    logger = get_logger('fullRes_testing')
 
     # track gpu memory
     maxMem = Value('i', 0)
@@ -41,7 +46,6 @@ def main():
 
     # get stuff
     imagedir = os.path.join(source_dir, "scaled_ims/")
-    maskdir = "/data/FLARE21/training_data/TrainingMask/"
     dataset_size = 72 #len(sorted(getFiles(imagedir)))
     all_fnames = sorted(getFiles(imagedir))
     spacings = np.load(os.path.join(source_dir, "spacings_scaled.npy"))[:,[2,0,1]]    # change order from (AP,LR,CC) to (CC,AP,LR)
@@ -52,18 +56,18 @@ def main():
         pass
 
     # Create the model
-    model = bottleneck_yolo_segmenter(n_classes=7, in_channels=1, p_drop=0)
+    model = fullRes_segmenter(n_classes=7, in_channels=1, p_drop=0) #, initial_levels=[1,1,1], initial_windows=[1,1,1]
 
     # put the model on GPU
     model.to('cuda')
 
     # setup result grids
-    res = np.full(shape=(len(folds), dataset_size, 5, 2), fill_value=np.nan)
+    res = np.full(shape=(len(folds), 16, 4, 2), fill_value=np.nan)
 
     # iterate over folds
     for fdx, fold_num in enumerate(folds):
         # get checkpoint dir
-        checkpoint_dir = f"/data/FLARE21/models/bottleneck_yolo_segmenter/fold{fold_num}/"
+        checkpoint_dir = f"/data/FLARE21/models/fullRes_segmenter/fold{fold_num}/"
 
         # load in the best model version
         model.load_best(checkpoint_dir, logger)
@@ -82,14 +86,23 @@ def main():
         # iterate over each testing image
         for pat_idx, (test_fname, test_ind) in enumerate(zip(test_im_fnames, test_inds)):
             # load image and normalise
-            ct_im = np.load(os.path.join(imagedir, test_fname))
+            #ct_im = np.load(os.path.join(imagedir, test_fname))
+            sitk_image = sitk.ReadImage(os.path.join(input_dir, test_fname.replace('.npy','_0000.nii.gz')))
+            ct_im = sitk.GetArrayFromImage(sitk_image)
+            t = time.time()
+            ct_im = resize(ct_im, output_shape=input_size, order=3, anti_aliasing=True, preserve_range=True)
+            logger.info(f"Image downsampling took {time.time()-t:.4f} seconds")
+            # preprocessing
+            ct_im = np.clip(ct_im, -1024, 2000)
             ct_im = windowLevelNormalize(ct_im, level=50, window=400)[np.newaxis, np.newaxis] # add dummy batch and channels axes
             # load gold standard segmentation in full resolution
-            sitk_mask = sitk.ReadImage(os.path.join(maskdir, test_fname.replace('.npy','.nii.gz')))
+            sitk_mask = sitk.ReadImage(os.path.join(mask_dir, test_fname.replace('.npy','.nii.gz')))
             gold_mask = sitk.GetArrayFromImage(sitk_mask).astype(int)
             if sitk_mask.GetDirection()[-1] == -1:
                 gold_mask = np.flip(gold_mask, axis=0)
+                ct_im = np.flip(ct_im, axis=0)
                 gold_mask = np.flip(gold_mask, axis=2)
+                ct_im = np.flip(ct_im, axis=2)
             # run forward pass
             t = time.time()
             prediction = model(torch.tensor(ct_im, dtype=torch.float).to('cuda'))
@@ -104,26 +117,17 @@ def main():
             prediction = np.clip(prediction, 0, prediction.max())   # -> OAR labels : 0 - Background, 1 - Liver, 2 - Kidneys, 3 - Spleen, 4 - Pancreas
             # rescale the prediction to match the full-resolution mask
             t = time.time()
-            scale_factor = np.array(gold_mask.shape) / np.array(prediction.shape)
             prediction = np.round(resize(prediction, output_shape=gold_mask.shape, order=0, anti_aliasing=False, preserve_range=True)).astype(np.uint8)
-            logger.info(f"Image scaling took {time.time()-t:.4f} seconds")
+            logger.info(f"Image upsampling took {time.time()-t:.4f} seconds")
             # save output
             try:
                 os.mkdir(os.path.join(output_dir, "full_res_test_segs/"))
             except OSError:
                 pass
-            #np.save(os.path.join(output_dir, "full_res_test_segs/", 'pred_'+test_fname), prediction)
+            np.save(os.path.join(output_dir, "full_res_test_segs/", 'pred_'+test_fname), prediction)
             # get spacing for this image
-            spacing = spacings[test_ind] / scale_factor
-            '''
-            try:
-                assert((spacing[[1,2,0]] == np.array(sitk_mask.GetSpacing())).all())
-            except AssertionError:
-                print(f"{spacing[[1,2,0]]} != {np.array(sitk_mask.GetSpacing())} ... close enough? y/n")
-                if input() != "y":
-                    p.terminate()
-                    exit(1)
-            '''
+            spacing = np.array(sitk_mask.GetSpacing())[[2,0,1]]
+            print(spacing)
             t = time.time()
             # get present labels
             labels_present = labels_present_all[test_ind]
