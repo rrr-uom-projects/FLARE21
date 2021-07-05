@@ -35,7 +35,6 @@ def multiclass_simple_dice_loss(prediction, mask, ignore_index, label_freq, useW
         # that way the loss will be 0 in regions of missing gold standard labels
         ablation_mask = torch.zeros_like(dice_pred, dtype=bool)
         missing_inds = torch.where(~ignore_index)
-        print(missing_inds)
         for imdx, sdx in zip(missing_inds[0], missing_inds[1]):
             ablation_mask[imdx, sdx+2] = True
         dice_pred = dice_pred.masked_fill(ablation_mask, 1)

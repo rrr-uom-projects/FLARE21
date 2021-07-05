@@ -157,7 +157,7 @@ class segmenter_Dataset(data.Dataset):
         mask = np.transpose(mask, axes=(3,0,1,2))
 
         # send it
-        return {'ct_im': ct_im, 'mask': mask, 'ignore_index': ignore_index, 'spacing': spacing}
+        return {'ct_im': ct_im3, 'mask': mask, 'ignore_index': ignore_index, 'spacing': spacing}
         
     def __len__(self):
         return len(self.availableImages)
