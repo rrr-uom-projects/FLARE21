@@ -1,3 +1,4 @@
+import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
@@ -178,3 +179,46 @@ class bridge_module(nn.Module):
         for brick in self.conv_bridge:
             x = brick(x) + x
         return x
+
+class learnable_WL(nn.Module):
+    def __init__(self, num_channels, initial_levels, initial_windows):
+        # initial levels and windows are lists of with len==num_channels. These are guesses of the W/L you wish to use -> could be made optional
+        super(learnable_WL, self).__init__()
+        self.num_channels = num_channels
+        # Checks
+        try:
+            assert(len(initial_levels)==self.num_channels and len(initial_windows)==self.num_channels)
+        except AssertionError:
+            print("Wrong number of initialised windows/levels...")
+            exit(1)
+        # Parameter initialisation
+        self.levels = nn.Parameter(torch.Tensor(initial_levels) / 3024)
+        self.windows = nn.Parameter(torch.Tensor(initial_windows) / 3024)
+    
+    '''
+    def sigmoid(self, x, ch_idx):
+        # General sigmoid is of form S(x|a,b) = 1/(1+exp(a(b-x)))
+        # use a = 2*ln(9)/w & b = level
+        return 1/(1+torch.exp(((2*torch.log(9))/ self.windows[ch_idx])*(self.levels[ch_idx]-x)))
+    '''
+    def sigmoid(self, x):
+        # General sigmoid is of form S(x|a,b) = 1/(1+exp(a(b-x)))
+        # use a = 2*ln(9)/w & b = level
+        # promote the dimension of windows and levels to use broadcasting
+        return 1 / (1 + torch.exp((2 * torch.log(torch.tensor(9)) / self.windows[:, None, None, None]) * (self.levels[:, None, None, None] - x)))
+
+    def forward(self, image):
+        # first put the image onto the range [0,1] <-- currently doing proper HU, no WM shift
+        image = torch.clamp(image, -1024, 2000) / 3024
+        # repeat image along channels dimension
+        image = torch.repeat_interleave(image, repeats=self.num_channels, dim=1)
+        # apply the sigmoid
+        return self.sigmoid(image)
+        '''
+        # now use the sigmoid for each channel (non-vectorised version)
+        ims = []
+        for ch_idx in range(self.num_channels):
+            im = self.sigmoid(image, ch_idx)
+            ims.append(im)
+        image = torch.cat(ims, dim=1)
+        '''

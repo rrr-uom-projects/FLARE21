@@ -9,14 +9,16 @@ import random
 import os
 import argparse as ap
 
-from models import yolo_transpose_plusplus
+from models import superres_segmenter, fullRes_segmenter
 # light_segmenter, yolo_segmenter, bottleneck_yolo_segmenter, asymmetric_yolo_segmenter, asym_bottleneck_yolo_segmenter, 
-# bridged_yolo_segmenter, yolo_transpose, ytp_learnableWL 
+# bridged_yolo_segmenter, yolo_transpose, yolo_transpose_plusplus, ytp_learnableWL 
 from trainer import segmenter_trainer
 from roughSeg.utils import k_fold_split_train_val_test, get_logger, get_number_of_learnable_parameters, getFiles, windowLevelNormalize
 
-source_dir = "/data/FLARE21/training_data_256/"
-input_size = (96,256,256)
+source_dir = "/data/FLARE21/training_data_512/"
+mask_dir = "/data/FLARE21/training_data_512/"
+image_size = (96,512,512)
+mask_size = (96,512,512)
 
 # For asymmetric, change BS     3 -> 2
 #                        lr 0.005 -> 0.001 
@@ -34,16 +36,16 @@ def main():
     global args
 
     # set directories
-    checkpoint_dir = "/data/FLARE21/models/full_runs/yolo_transpose_plusplus/fold"+str(args.fold_num)
+    checkpoint_dir = "/data/FLARE21/models/fullRes_segmenter/fold"+str(args.fold_num)
     imagedir = os.path.join(source_dir, "scaled_ims/")
-    maskdir = os.path.join(source_dir, "scaled_masks/")
+    maskdir = os.path.join(mask_dir, "scaled_masks/")
 
     # Create main logger
     logger = get_logger('organHunter_Training')
 
     # Create the model
     n_classes = 7
-    model = yolo_transpose_plusplus(n_classes=n_classes, in_channels=2, p_drop=0)
+    model = fullRes_segmenter(n_classes=n_classes, in_channels=1, p_drop=0)
 
     for param in model.parameters():
         param.requires_grad = True
@@ -54,13 +56,13 @@ def main():
 
     # Log the number of learnable parameters
     logger.info(f'Number of learnable params {get_number_of_learnable_parameters(model)}')
-    train_BS = int(3) # change 3->2 for asymmetric
+    train_BS = int(2) # change 3->2 for asymmetric
     val_BS = int(2)
     train_workers = int(4)
     val_workers = int(2)
 
     # allocate ims to train, val and test
-    dataset_size = len(sorted(getFiles(imagedir)))
+    dataset_size = 72 # len(sorted(getFiles(imagedir)))
     train_inds, val_inds, test_inds = k_fold_split_train_val_test(dataset_size, fold_num=args.fold_num, seed=230597)
 
     # get label frequencies for weighted loss fns
@@ -105,22 +107,25 @@ class segmenter_Dataset(data.Dataset):
         if torch.is_tensor(idx):
            idx = idx.tolist()
         imageToUse = self.availableImages[idx]
-        spacing = np.load(os.path.join(source_dir, "spacings_scaled.npy"))[idx][[2,0,1]]
+        #spacing = np.load("/data/FLARE21/training_data/spacings_scaled.npy")[idx][[2,0,1]]
         ct_im = np.load(os.path.join(self.imagedir, imageToUse))
         mask = np.load(os.path.join(self.maskdir, imageToUse))
         ignore_index = self.ignore_oars[self.image_inds[idx]]
 
         # Augmentations
+        '''
         if self.shifts:
             mx_x, mx_yz = 2, 4
+            mx_x2, mx_yz2 = 4, 8
             # find shift values
             cc_shift, ap_shift, lr_shift = random.randint(-mx_x,mx_x), random.randint(-mx_yz,mx_yz), random.randint(-mx_yz,mx_yz)
+            cc_shift2, ap_shift2, lr_shift2 = cc_shift*2, ap_shift*2, lr_shift*2
             # pad for shifting into
             ct_im = np.pad(ct_im, pad_width=((mx_x,mx_x),(mx_yz,mx_yz),(mx_yz,mx_yz)), mode='constant', constant_values=-1024)
-            mask = np.pad(mask, pad_width=((mx_x,mx_x),(mx_yz,mx_yz),(mx_yz,mx_yz)), mode='constant', constant_values=0)
+            mask = np.pad(mask, pad_width=((mx_x2,mx_x2),(mx_yz2,mx_yz2),(mx_yz2,mx_yz2)), mode='constant', constant_values=0)
             # crop to complete shift
-            ct_im = ct_im[mx_x+cc_shift:input_size[0]+mx_x+cc_shift, mx_yz+ap_shift:input_size[1]+mx_yz+ap_shift, mx_yz+lr_shift:input_size[2]+mx_yz+lr_shift]
-            mask = mask[mx_x+cc_shift:input_size[0]+mx_x+cc_shift, mx_yz+ap_shift:input_size[1]+mx_yz+ap_shift, mx_yz+lr_shift:input_size[2]+mx_yz+lr_shift]
+            ct_im = ct_im[mx_x+cc_shift:image_size[0]+mx_x+cc_shift, mx_yz+ap_shift:image_size[1]+mx_yz+ap_shift, mx_yz+lr_shift:image_size[2]+mx_yz+lr_shift]
+            mask = mask[mx_x2+cc_shift2:mask_size[0]+mx_x2+cc_shift2, mx_yz2+ap_shift2:mask_size[1]+mx_yz2+ap_shift2, mx_yz2+lr_shift2:mask_size[2]+mx_yz2+lr_shift2]
 
         if self.rotations and random.random()<0.5:
             # taking implementation from 3DSegmentationNetwork which can be applied -> rotations in the axial plane only I should think? -10->10 degrees?
@@ -133,31 +138,30 @@ class segmenter_Dataset(data.Dataset):
             scale_factor = np.clip(np.random.normal(loc=1.0,scale=0.05), 0.8, 1.2)
             ct_im = self.scale(ct_im, scale_factor, is_mask=False)
             mask = self.scale(mask, scale_factor, is_mask=True)
-            spacing /= scale_factor
         
         if self.flips:
             raise NotImplementedError # LR flips shouldn't be applied I don't think
-    
+        '''
         # perform window-levelling here, create 3 channels
 
         ###
         # This is where to add in extra augmentations and channels
         ###
 
-        ct_im3 = np.zeros(shape=(2,) + ct_im.shape)
-        ct_im3[0] = windowLevelNormalize(ct_im, level=50, window=400)   # abdomen "soft tissues"
-        ct_im3[1] = windowLevelNormalize(ct_im, level=60, window=100)   # pancreas
+        #ct_im3 = np.zeros(shape=(3,) + ct_im.shape)
+        #ct_im3[0] = windowLevelNormalize(ct_im, level=50, window=400)   # abdomen "soft tissues"
+        #ct_im3[1] = windowLevelNormalize(ct_im, level=30, window=150)   # liver
         #ct_im3[2] = windowLevelNormalize(ct_im, level=400, window=1800) # spine bone level
 
         # start with a single soft tissue channel
-        #ct_im = windowLevelNormalize(ct_im, level=50, window=400)[np.newaxis]   # abdomen "soft tissues"
+        ct_im = windowLevelNormalize(ct_im, level=50, window=400)[np.newaxis]   # abdomen "soft tissues"
         
         # use one-hot masks
         mask = (np.arange(self.n_classes) == mask[...,None]).astype(int)
         mask = np.transpose(mask, axes=(3,0,1,2))
 
         # send it
-        return {'ct_im': ct_im3, 'mask': mask, 'ignore_index': ignore_index, 'spacing': spacing}
+        return {'ct_im': ct_im, 'mask': mask, 'ignore_index': ignore_index}
         
     def __len__(self):
         return len(self.availableImages)
