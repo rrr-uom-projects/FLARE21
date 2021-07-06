@@ -37,13 +37,14 @@ def export():
     model  = yolo_transpose_plusplus(n_classes=7, in_channels=1, p_drop=0.25)
 
     #* Load trained model
-    model.load_best(args.weights) #* Will default to GPU if detected
+    model.load_best(args.weights) #* Will default to GPU if detected + defaults to best_checkpoint.pytorch in weights directory
     model.eval()
 
     #* Random input w. correct shape
     x = torch.randn(1, 1, 96, 256, 256, requires_grad=True, dtype=torch.float32) #! B x C x H x W x D
     output = model(x)
     print(output.shape)
+    #TODO Optimise model https://www.onnxruntime.ai/docs/resources/graph-optimizations.html#python-api-example
     torch.onnx.export(model, x, args.output + '.onnx', 
                         export_params=True, opset_version=12,
                         do_constant_folding=True,

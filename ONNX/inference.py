@@ -18,11 +18,11 @@ from ViT.utils.transforms import PrepareForNet
 from roughSeg.utils import k_fold_split_train_val_test, getFiles
 
 
-img_dir = '/data/FLARE21/training_data/scaled_ims/'  # * path to data
-model_filename = './compiled_model.onnx'
+img_dir = '/data/FLARE21/training_data_256/scaled_ims/'  # * path to data
+model_filename = './compiled_model.quant.onnx'
 
 test_workers = 2
-batch_size=6
+batch_size=1
 
 #~ Dataset class
 class customDataset(Dataset):
@@ -31,9 +31,11 @@ class customDataset(Dataset):
         self.organ_to_idx = ["Background", "Liver",
                              "Kidney L", "Kidney R", "Spleen", "Pancreas"]
         self.names = self.idx_to_names(image_path)
-        self.images = self.load_data(image_path, oar=None)
-        self.WL_images = self.WL_norm(self.images, window=window, level=level)
+        self.availableImages = [sorted(getFiles(image_path))[
+            ind] for ind in indices]
         self.transforms = transforms
+        self.window = window
+        self.level = level
         self.apply_WL = apply_WL
         self.ignore_oars = np.load(
             "/data/FLARE21/training_data/labels_present.npy")
@@ -48,7 +50,12 @@ class customDataset(Dataset):
             name = file.split('.')[0]
             if file.endswith('.npy') and name in self.names:
                 data_dict['id'].append(name)
-                slice_ = np.load(path + file)
+                
+                try:
+                    slice_ = np.load(path + file)
+                except ValueError:
+                    print(name)
+                    continue
                 if oar is None:
                     data_dict['slices'].append(slice_)
                 else:
@@ -70,10 +77,10 @@ class customDataset(Dataset):
         return ls
 
     @staticmethod
-    def WL_norm(data, window, level):
+    def WL_norm(img, window, level):
         minval = level - window/2
         maxval = level + window/2
-        wld = np.clip(data['slices'], minval, maxval)
+        wld = np.clip(img, minval, maxval)
         wld -= minval
         wld /= window
         return wld
@@ -85,11 +92,10 @@ class customDataset(Dataset):
         if torch.is_tensor(index):
             index = index.tolist()
         pid = self.names[index]
-
+        imageToUse = self.availableImages[index]
+        img = np.load(os.path.join(self.imagedir, imageToUse))
         if self.apply_WL:
-            img = self.WL_images[index, ..., np.newaxis]
-        else:
-            img = self.images['slices'][index, ..., np.newaxis]
+            img = self.WL_norm(img, self.window, self.level)
         if self.transforms:
             augmented = self.transforms({"image": img})
             sample = {'inputs': augmented["image"],
@@ -110,28 +116,27 @@ def main():
     ])
 
     dataset_size = len(getFiles(img_dir))
-    train_idx, val_idx, test_idx = k_fold_split_train_val_test(
+    _, _, test_idx = k_fold_split_train_val_test(
         dataset_size, fold_num=1, seed=230597) #! Use test set from first fold for now
-    
     test_dataset = customDataset(img_dir, test_transforms, indices=test_idx, apply_WL=True)
 
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True, pin_memory=False,
                              num_workers=test_workers, worker_init_fn=lambda _: np.random.seed(
                                  int(torch.initial_seed()) % (2**32-1)))
     #* ONNX inference session
-
-    ort_session = ort.InferenceSession(model_filename)
+    sess_options = ort.SessionOptions()
+    sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+    sess_options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL #! or ORT_SEQUENTIAL
+    sess_options.optimized_model_filepath = "./optimized_model.onnx"
+    sess_options.log_severity_level = 1
+    ort_session = ort.InferenceSession(model_filename, sess_options=sess_options)
     print("ONNX Available providers:", ort.get_available_providers())
     print(ort.get_device())
     t = time.time()
     for data in test_loader:
-        ort.backend.run(ort_session, to_numpy(data['inputs']))
-
-    # for data in test_loader:
-    #     ort_inputs = ort.OrtValue.ortvalue_from_numpy(to_numpy(data['inputs']), 'cuda', 0) #* Place on cuda device id=0
-    #     out = ort_session.run(None, ort_inputs)
-    #     print(out.shape)
-    #     break
+        print(data['inputs'].shape)
+        inputs = {ort_session.get_inputs()[0].name: to_numpy(data['inputs'])}
+        outputs = ort_session.run(None, inputs)
     print(f'Execution time: {time.time() - t} for {len(test_idx)} examples.')
 
 if __name__ == '__main__':
