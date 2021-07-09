@@ -9,7 +9,7 @@ import nvgpu
 from multiprocessing import Process, Value
 
 from model_archive import yolo_segmenter
-from models import superres_segmenter, fullRes_segmenter
+from models import superres_segmenter, fullRes_segmenter, yolo_transpose_plusplus
 # light_segmenter, bottleneck_yolo_segmenter, asymmetric_yolo_segmenter, asym_bottleneck_yolo_segmenter, 
 # bridged_yolo_segmenter, yolo_transpose, yolo_transpose_plusplus, ytp_learnableWL
 from roughSeg.utils import k_fold_split_train_val_test, get_logger, getFiles, windowLevelNormalize
@@ -18,8 +18,8 @@ import roughSeg.deepmind_metrics as deepmind_metrics
 source_dir = "/data/FLARE21/training_data_256/"
 input_dir = "/data/FLARE21/training_data/TrainingImg/"
 mask_dir = "/data/FLARE21/training_data/TrainingMask/"
-output_dir = "/data/FLARE21/results/fullRes_segmenter/"
-input_size = (96,512,512)
+output_dir = "/data/FLARE21/results/full_runs/yolo_transpose_plusplus/"
+input_size = (96,256,256)
 folds = [1]#[1,2,3,4,5]
 organs = ["liver", "kidney L", "kidney R", "spleen", "pancreas"]
 base_vram = nvgpu.gpu_info()[0]['mem_used']
@@ -46,7 +46,7 @@ def main():
 
     # get stuff
     imagedir = os.path.join(source_dir, "scaled_ims/")
-    dataset_size = 72 #len(sorted(getFiles(imagedir)))
+    dataset_size = len(sorted(getFiles(imagedir))) # 72
     all_fnames = sorted(getFiles(imagedir))
     spacings = np.load(os.path.join(source_dir, "spacings_scaled.npy"))[:,[2,0,1]]    # change order from (AP,LR,CC) to (CC,AP,LR)
     labels_present_all = np.load(os.path.join(source_dir, "labels_present.npy"))
@@ -56,18 +56,19 @@ def main():
         pass
 
     # Create the model
-    model = fullRes_segmenter(n_classes=7, in_channels=1, p_drop=0) #, initial_levels=[1,1,1], initial_windows=[1,1,1]
+    model = yolo_transpose_plusplus(n_classes=7, in_channels=2, p_drop=0) #, initial_levels=[1,1,1], initial_windows=[1,1,1]
 
     # put the model on GPU
     model.to('cuda')
 
     # setup result grids
-    res = np.full(shape=(len(folds), 16, 4, 2), fill_value=np.nan)
+    _, _, dummy_test_inds = k_fold_split_train_val_test(dataset_size, fold_num=1, seed=230597)
+    res = np.full(shape=(len(folds), len(dummy_test_inds), 4, 2), fill_value=np.nan)
 
     # iterate over folds
     for fdx, fold_num in enumerate(folds):
         # get checkpoint dir
-        checkpoint_dir = f"/data/FLARE21/models/fullRes_segmenter/fold{fold_num}/"
+        checkpoint_dir = f"/data/FLARE21/models/full_runs/yolo_transpose_plusplus/fold{fold_num}/"
 
         # load in the best model version
         model.load_best(checkpoint_dir, logger)
@@ -82,27 +83,32 @@ def main():
 
         # get test fnames
         test_im_fnames = [all_fnames[ind] for ind in test_inds]
-
         # iterate over each testing image
         for pat_idx, (test_fname, test_ind) in enumerate(zip(test_im_fnames, test_inds)):
             # load image and normalise
-            #ct_im = np.load(os.path.join(imagedir, test_fname))
+            t = time.time()
             sitk_image = sitk.ReadImage(os.path.join(input_dir, test_fname.replace('.npy','_0000.nii.gz')))
             ct_im = sitk.GetArrayFromImage(sitk_image)
+            # load gold standard segmentation in full resolution
+            sitk_mask = sitk.ReadImage(os.path.join(mask_dir, test_fname.replace('.npy','.nii.gz')))
+            gold_mask = sitk.GetArrayFromImage(sitk_mask).astype(int)
+            # reorient if required
+            if sitk_mask.GetDirection()[-1] == -1:
+                gold_mask = np.flip(gold_mask, axis=0).copy()
+                ct_im = np.flip(ct_im, axis=0).copy()
+                gold_mask = np.flip(gold_mask, axis=2).copy() 
+                ct_im = np.flip(ct_im, axis=2).copy()
+            logger.info(f"Image loading took {time.time()-t:.4f} seconds")
             t = time.time()
             ct_im = resize(ct_im, output_shape=input_size, order=3, anti_aliasing=True, preserve_range=True)
             logger.info(f"Image downsampling took {time.time()-t:.4f} seconds")
             # preprocessing
             ct_im = np.clip(ct_im, -1024, 2000)
-            ct_im = windowLevelNormalize(ct_im, level=50, window=400)[np.newaxis, np.newaxis] # add dummy batch and channels axes
-            # load gold standard segmentation in full resolution
-            sitk_mask = sitk.ReadImage(os.path.join(mask_dir, test_fname.replace('.npy','.nii.gz')))
-            gold_mask = sitk.GetArrayFromImage(sitk_mask).astype(int)
-            if sitk_mask.GetDirection()[-1] == -1:
-                gold_mask = np.flip(gold_mask, axis=0)
-                ct_im = np.flip(ct_im, axis=0)
-                gold_mask = np.flip(gold_mask, axis=2)
-                ct_im = np.flip(ct_im, axis=2)
+            #ct_im = windowLevelNormalize(ct_im, level=50, window=400)[np.newaxis, np.newaxis] # add dummy batch and channels axes
+            ct_im2 = np.zeros(shape=(2,) + ct_im.shape)
+            ct_im2[0] = windowLevelNormalize(ct_im, level=50, window=400)   # abdomen "soft tissues"
+            ct_im2[1] = windowLevelNormalize(ct_im, level=60, window=100)   # pancreas
+            ct_im = ct_im2[np.newaxis].copy() # add dummy batch axis
             # run forward pass
             t = time.time()
             prediction = model(torch.tensor(ct_im, dtype=torch.float).to('cuda'))
