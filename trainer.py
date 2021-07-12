@@ -28,7 +28,8 @@ def multiclass_simple_dice_loss(prediction, mask, ignore_index, label_freq, useW
     smooth = 1.
     loss = 0.
     dice_pred = F.softmax(prediction, dim=1)
-
+    
+    '''
     if (ignore_index==False).any():
         # we are missing gold standard masks for some structures
         # change all predicted pixels of the missing structure to background -> 0
@@ -38,7 +39,8 @@ def multiclass_simple_dice_loss(prediction, mask, ignore_index, label_freq, useW
         for imdx, sdx in zip(missing_inds[0], missing_inds[1]):
             ablation_mask[imdx, sdx+2] = True
         dice_pred = dice_pred.masked_fill(ablation_mask, 1)
-
+    '''
+    
     for c in range(num_classes):
         pred_flat = dice_pred[:,c].reshape(-1)
         mask_flat = mask[:,c].reshape(-1)
@@ -303,7 +305,7 @@ class segmenter_trainer:
                     
                     # axial view of the kidneys (centre kidney L for simplicity)
                     sdx = 3
-                    coords = self.find_coords(mask, sdx, 4)
+                    coords = self.find_coords(mask, sdx)
                     fig2, (ax3, ax4, ax5) = plt.subplots(1, 3, figsize=(15, 5), tight_layout=True)
                     ax_slice = ct_im[which_to_show, 0, coords[0]].cpu().numpy().astype(float)             # <-- batch_num, contrast_channel, ax_slice
                     ax3.imshow(np.rot90(ax_slice, 2), aspect=1.0, cmap='Greys_r')
@@ -315,7 +317,7 @@ class segmenter_trainer:
                     fig2.savefig(os.path.join(self.fig_dir, 'Kidneys_pred_'+str(self.num_epoch)+'.png'))
                     
                     # sagittal view of the spleen
-                    sdx = 5
+                    sdx = 4
                     coords = self.find_coords(mask, sdx)
                     fig3, (ax6, ax7, ax8) = plt.subplots(1, 3, figsize=(15, 5), tight_layout=True)
                     sag_slice = ct_im[which_to_show, 0, :, :, coords[2]].cpu().numpy().astype(float)            # <-- batch_num, contrast_channel, sag_slice
@@ -328,7 +330,7 @@ class segmenter_trainer:
                     fig3.savefig(os.path.join(self.fig_dir, 'Spleen_pred_'+str(self.num_epoch)+'.png'))
                     
                     # axial view of the pancreas
-                    sdx = 6
+                    sdx = 5
                     coords = self.find_coords(mask, sdx)
                     fig4, (ax9, ax10, ax11) = plt.subplots(1, 3, figsize=(15, 5), tight_layout=True)
                     ax_slice = ct_im[which_to_show, 1, coords[0]].cpu().numpy().astype(float)             # <-- batch_num, contrast_channel, ax_slice
@@ -359,10 +361,10 @@ class segmenter_trainer:
             return output, dsc_loss
 
     def find_coords(self, mask, sdx, sdx2=None):
-        if sdx2:
-            coords = center_of_mass(np.logical_or(mask == sdx, mask == sdx2))
-        else:
-            coords = center_of_mass(mask == sdx)
+        #if sdx2:
+            #coords = center_of_mass(np.logical_or(mask == sdx, mask == sdx2))
+        #else:
+        coords = center_of_mass(mask == sdx)
         return np.round(coords).astype(int)
 
     def _is_best_eval_score(self, eval_score):

@@ -9,17 +9,17 @@ import nvgpu
 from multiprocessing import Process, Value
 
 from model_archive import yolo_segmenter
-from models import superres_segmenter, fullRes_segmenter, yolo_transpose_plusplus
+from models import superres_segmenter, fullRes_segmenter, yolo_transpose_plusplus, tiny_segmenter
 # light_segmenter, bottleneck_yolo_segmenter, asymmetric_yolo_segmenter, asym_bottleneck_yolo_segmenter, 
 # bridged_yolo_segmenter, yolo_transpose, yolo_transpose_plusplus, ytp_learnableWL
 from roughSeg.utils import k_fold_split_train_val_test, get_logger, getFiles, windowLevelNormalize
 import roughSeg.deepmind_metrics as deepmind_metrics
 
-source_dir = "/data/FLARE21/training_data_256/"
+source_dir = "/data/FLARE21/training_data_192/"
 input_dir = "/data/FLARE21/training_data/TrainingImg/"
 mask_dir = "/data/FLARE21/training_data/TrainingMask/"
-output_dir = "/data/FLARE21/results/full_runs/yolo_transpose_plusplus/"
-input_size = (96,256,256)
+output_dir = "/data/FLARE21/results/full_runs/tiny_segmenter/"
+input_size = (96,192,192)
 folds = [1]#[1,2,3,4,5]
 organs = ["liver", "kidney L", "kidney R", "spleen", "pancreas"]
 base_vram = nvgpu.gpu_info()[0]['mem_used']
@@ -56,7 +56,7 @@ def main():
         pass
 
     # Create the model
-    model = yolo_transpose_plusplus(n_classes=7, in_channels=2, p_drop=0) #, initial_levels=[1,1,1], initial_windows=[1,1,1]
+    model = tiny_segmenter(n_classes=6, in_channels=2, p_drop=0) #, initial_levels=[1,1,1], initial_windows=[1,1,1]
 
     # put the model on GPU
     model.to('cuda')
@@ -68,7 +68,7 @@ def main():
     # iterate over folds
     for fdx, fold_num in enumerate(folds):
         # get checkpoint dir
-        checkpoint_dir = f"/data/FLARE21/models/full_runs/yolo_transpose_plusplus/fold{fold_num}/"
+        checkpoint_dir = f"/data/FLARE21/models/full_runs/tiny_segmenter/fold{fold_num}/"
 
         # load in the best model version
         model.load_best(checkpoint_dir, logger)
@@ -119,7 +119,8 @@ def main():
             prediction = prediction.cpu().numpy().astype(int)
             # drop the body and label the kidneys together          # OAR labels : 1 - Body, 2 - Liver, 3 - Kidney L, 4 - Kidney R, 5 - Spleen, 6 - Pancreas
             prediction -= 1                                         # -> OAR labels : 0 - Body, 1 - Liver, 2 - Kidney L, 3 - Kidney R, 4 - Spleen, 5 - Pancreas
-            prediction[prediction >= 3] -= 1                        # -> OAR labels : 0 - Body, 1 - Liver, 2 - Kidneys, 3 - Spleen, 4 - Pancreas
+            print("WARNING: assuming model trained with kidneys as same label...")
+            #prediction[prediction >= 3] -= 1                        # -> OAR labels : 0 - Body, 1 - Liver, 2 - Kidneys, 3 - Spleen, 4 - Pancreas
             prediction = np.clip(prediction, 0, prediction.max())   # -> OAR labels : 0 - Background, 1 - Liver, 2 - Kidneys, 3 - Spleen, 4 - Pancreas
             # rescale the prediction to match the full-resolution mask
             t = time.time()
