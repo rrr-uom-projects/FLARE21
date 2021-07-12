@@ -9,14 +9,14 @@ import random
 import os
 import argparse as ap
 
-from models import yolo_transpose_plusplus
+from models import yolo_transpose_plusplus, tiny_segmenter
 # light_segmenter, yolo_segmenter, bottleneck_yolo_segmenter, asymmetric_yolo_segmenter, asym_bottleneck_yolo_segmenter, 
 # bridged_yolo_segmenter, yolo_transpose, ytp_learnableWL 
 from trainer import segmenter_trainer
 from roughSeg.utils import k_fold_split_train_val_test, get_logger, get_number_of_learnable_parameters, getFiles, windowLevelNormalize
 
-source_dir = "/data/FLARE21/training_data_256/"
-input_size = (96,256,256)
+source_dir = "/data/FLARE21/training_data_128_sameKidneys/"
+input_size = (96,128,128)
 
 # For asymmetric, change BS     3 -> 2
 #                        lr 0.005 -> 0.001 
@@ -34,7 +34,7 @@ def main():
     global args
 
     # set directories
-    checkpoint_dir = "/data/FLARE21/models/full_runs/yolo_transpose_plusplus/fold"+str(args.fold_num)
+    checkpoint_dir = "/data/FLARE21/models/full_runs/tiny_segmenter_128/fold"+str(args.fold_num)
     imagedir = os.path.join(source_dir, "scaled_ims/")
     maskdir = os.path.join(source_dir, "scaled_masks/")
 
@@ -42,8 +42,8 @@ def main():
     logger = get_logger('organHunter_Training')
 
     # Create the model
-    n_classes = 7
-    model = yolo_transpose_plusplus(n_classes=n_classes, in_channels=2, p_drop=0)
+    n_classes = 6
+    model = tiny_segmenter(n_classes=n_classes, in_channels=2, p_drop=0)
 
     for param in model.parameters():
         param.requires_grad = True
@@ -54,10 +54,10 @@ def main():
 
     # Log the number of learnable parameters
     logger.info(f'Number of learnable params {get_number_of_learnable_parameters(model)}')
-    train_BS = int(3) # change 3->2 for asymmetric
-    val_BS = int(2)
+    train_BS = int(8) # change 3->2 for asymmetric
+    val_BS = int(8)
     train_workers = int(4)
-    val_workers = int(2)
+    val_workers = int(4)
 
     # allocate ims to train, val and test
     dataset_size = len(sorted(getFiles(imagedir)))
@@ -73,14 +73,14 @@ def main():
     val_loader = DataLoader(dataset=val_data, batch_size=val_BS, shuffle=True, pin_memory=False, num_workers=val_workers, worker_init_fn=lambda _: np.random.seed(int(torch.initial_seed())%(2**32-1)))
 
     # Create the optimizer
-    optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr = 0.005) # change 0.005->0.001 for asymmetric
+    optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr = 0.001) # change 0.005->0.001 for asymmetric
 
     # Create learning rate adjustment strategy
     lr_scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=75, verbose=True)
     
     # Create model trainer
     trainer = segmenter_trainer(model=model, optimizer=optimizer, lr_scheduler=lr_scheduler, device=device, train_loader=train_loader, val_loader=val_loader,
-                                label_freq=label_freq, logger=logger, checkpoint_dir=checkpoint_dir, max_num_epochs=1000, patience=175, iters_to_accumulate=2)
+                                label_freq=label_freq, logger=logger, checkpoint_dir=checkpoint_dir, max_num_epochs=1000, patience=175, iters_to_accumulate=1)
     
     # Start training
     trainer.fit()

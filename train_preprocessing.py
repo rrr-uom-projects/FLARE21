@@ -9,11 +9,11 @@ import os
 
 imdir = "/data/FLARE21/training_data/TrainingImg/"
 maskdir = "/data/FLARE21/training_data/TrainingMask/"
-out_dir = "/data/FLARE21/training_data_256/"
+out_dir = "/data/FLARE21/training_data_128_sameKidneys/"
 out_imdir = os.path.join(out_dir, "scaled_ims/")
 out_maskdir = os.path.join(out_dir, "scaled_masks/")
 
-out_resolution = (96,256,256)
+out_resolution = (96,128,128)
 
 # OARs : 1 - Liver, 2 - Kidneys, 3 - Spleen, 4 - Pancreas
 # IMPORTANT! : sitk_image.GetDirection()[-1] -> (1 or -1) -> flip cranio-caudally if -1
@@ -27,8 +27,8 @@ def split_kidneys(mask):
 
 sizes_scaled = np.zeros((361,3))
 spacings_scaled = np.zeros((361,3))
-labels_present = np.empty(shape=(361,5), dtype=bool)
-label_freq = np.zeros((7))
+labels_present = np.empty(shape=(361,4), dtype=bool)
+label_freq = np.zeros((6))
 for pdx, fname in enumerate(sorted(getFiles(imdir))):
     # load files
     print(f"Processing {fname.replace('_0000.nii.gz','')}")
@@ -46,7 +46,7 @@ for pdx, fname in enumerate(sorted(getFiles(imdir))):
         mask = np.flip(mask, axis=2)
     
     # split the kidneys
-    mask = split_kidneys(mask)
+    #mask = split_kidneys(mask)
 
     # use id body to generate body delineation too
     # threshold
@@ -73,13 +73,13 @@ for pdx, fname in enumerate(sorted(getFiles(imdir))):
     mask += body_mask
 
     # identify missing labels
-    labels_present[pdx] = np.array([(mask==oar_label).any() for oar_label in range(2,7)])
+    labels_present[pdx] = np.array([(mask==oar_label).any() for oar_label in range(2,6)])
     
     # resample all images to common size
     spacing = np.array(sitk_im.GetSpacing())
     size = np.array(im.shape)
     scale_factor = np.array(out_resolution) / size
-    im = resize(im, output_shape=out_resolution, order=3, anti_aliasing=True, preserve_range=True)
+    im = resize(im, output_shape=out_resolution, order=3, anti_aliasing=True, preserve_range=True).astype(np.float16)
     mask = np.round(resize(mask, output_shape=out_resolution, order=0, anti_aliasing=False, preserve_range=True)).astype(np.uint8)
     
     # rescale spacings
@@ -97,7 +97,7 @@ for pdx, fname in enumerate(sorted(getFiles(imdir))):
 
     # extras
     spacings_scaled[pdx] = spacing
-    for odx in range(7):
+    for odx in range(6):
         label_freq[odx] += (mask==odx).sum()
 
 # save newly scaled spacings and sizes
@@ -105,3 +105,10 @@ np.save(os.path.join(out_dir, "spacings_scaled.npy"), spacings_scaled)
 np.save(os.path.join(out_dir, "labels_present.npy"), labels_present)
 print(label_freq)
 np.save(os.path.join(out_dir, "label_freq.npy"), label_freq)
+'''
+a = np.load("label_freq.npy")
+print(a)
+a = a[:-1]
+print(a)
+np.save("label_freq.npy", a)
+'''
