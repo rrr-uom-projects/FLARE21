@@ -912,13 +912,13 @@ class fullRes_segmenter(nn.Module):
             logger.info([k for k, v in list(renamed_dict.items())])
 
 ## Same as yolo_transpose_plusplus, but with bottlenecked asym. convolutions
-# Parameters: 6,716,839 -> 1,034,759
-# FLOPS: 
+# Parameters: 6,716,839 -> 443,094
+# FLOPS: 925,006,823,424 -> 73,191,776,256 / 32529678336 (7% / 3.5%)
 # Able to accelerate this with onnx, maybe able to run on cpu-only?
 class tiny_segmenter(nn.Module):
     def __init__(self, n_classes=7, in_channels=1, p_drop=0.25):
         super(tiny_segmenter, self).__init__()
-        # Input --> (in_channels, 96, 256, 256)
+        # Input --> (in_channels, 96, 192, 192) or (in_channels, 96, 128, 128)
         self.yolo_input_conv = nn.Conv3d(in_channels=in_channels, out_channels=16, kernel_size=(7,7,7), padding=(3,3,3), stride=(1,2,2))
         self.yolo_bn = nn.BatchNorm3d(16)
         self.yolo_drop = nn.Dropout3d(p=p_drop)
