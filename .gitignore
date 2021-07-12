@@ -25,3 +25,4 @@ __pycache__/*
 preprocessing_bits.ipynb
 roughSeg/check_missing_labels.ipynb
 __pycache__/model_archive.cpython-38.pyc
+*.json

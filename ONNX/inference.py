@@ -9,6 +9,9 @@ import numpy as np
 sys.path.append('..')
 import onnxruntime as ort
 import time
+from multiprocessing import Pool
+import itertools
+
 
 from torch.utils.data import Dataset, DataLoader
 from torchvision.transforms import Compose
@@ -22,17 +25,20 @@ img_dir = '/data/FLARE21/training_data_256/scaled_ims/'  # * path to data
 model_filename = './compiled_model.quant.onnx'
 
 test_workers = 2
-batch_size=1
+batch_size=6
+num_threads = 16 #* Num threads to use (MAX on PEPITA: 24*2)
 
 #~ Dataset class
 class customDataset(Dataset):
     def __init__(self, image_path, transforms, indices, apply_WL, window=400, level=50):
         self.indices = indices
+        self.image_path = image_path
         self.organ_to_idx = ["Background", "Liver",
                              "Kidney L", "Kidney R", "Spleen", "Pancreas"]
         self.names = self.idx_to_names(image_path)
         self.availableImages = [sorted(getFiles(image_path))[
             ind] for ind in indices]
+        self.availableImages.remove('train_079.npy')
         self.transforms = transforms
         self.window = window
         self.level = level
@@ -93,7 +99,7 @@ class customDataset(Dataset):
             index = index.tolist()
         pid = self.names[index]
         imageToUse = self.availableImages[index]
-        img = np.load(os.path.join(self.imagedir, imageToUse))
+        img = np.load(os.path.join(self.image_path, imageToUse))[..., np.newaxis]
         if self.apply_WL:
             img = self.WL_norm(img, self.window, self.level)
         if self.transforms:
@@ -109,6 +115,15 @@ class customDataset(Dataset):
 
 def to_numpy(x):
     return x.detach().cpu().numpy() if x.requires_grad else x.cpu().numpy()
+
+def inference(data, sess_options):
+    #~ Inference 
+    ort_session = ort.InferenceSession(
+        model_filename, sess_options=sess_options)
+    inputs = {ort_session.get_inputs()[0].name: to_numpy(data['inputs'])}
+    outputs = np.array(ort_session.run(None, inputs))
+    return outputs
+
 
 def main():
     test_transforms = Compose([
@@ -129,14 +144,19 @@ def main():
     sess_options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL #! or ORT_SEQUENTIAL
     sess_options.optimized_model_filepath = "./optimized_model.onnx"
     sess_options.log_severity_level = 1
-    ort_session = ort.InferenceSession(model_filename, sess_options=sess_options)
+    sess_options.enable_profiling= True
+    sess_options.intra_op_num_threads = num_threads
+    
     print("ONNX Available providers:", ort.get_available_providers())
     print(ort.get_device())
     t = time.time()
+    outputs = {}
     for data in test_loader:
-        print(data['inputs'].shape)
-        inputs = {ort_session.get_inputs()[0].name: to_numpy(data['inputs'])}
-        outputs = ort_session.run(None, inputs)
+        id_ = data['id'][0]
+        print(id_)
+        outputs[id_] = inference(data, sess_options)
+        break
+    print(outputs)
     print(f'Execution time: {time.time() - t} for {len(test_idx)} examples.')
 
 if __name__ == '__main__':
