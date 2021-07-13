@@ -1169,3 +1169,84 @@ class tiny_attention_segmenter(nn.Module):
         if logger:
             logger.info("Loaded layers from previous best checkpoint:")
             logger.info([k for k, v in list(renamed_dict.items())])
+
+## The tiny_segmenter, but with dynamic upsampling layer
+class tiny_inference_segmenter(nn.Module):
+    def __init__(self, n_classes=7, in_channels=1, p_drop=0.25, depth_stride=1):
+        super(tiny_inference_segmenter, self).__init__()
+        # Input --> (in_channels, 96, 192, 192) or (in_channels, 96, 128, 128)
+        self.yolo_input_conv = nn.Conv3d(in_channels=in_channels, out_channels=16, kernel_size=(7,7,7), padding=(3,3,3), stride=(depth_stride,2,2))
+        self.yolo_bn = nn.BatchNorm3d(16)
+        self.yolo_drop = nn.Dropout3d(p=p_drop)
+        # conv layers set 1 - down 1
+        self.down_conv_1 = asym_bottleneck_module(in_channels=16, out_channels=32, p_drop=p_drop)
+        # conv layers set 2 - down 2
+        self.down_conv_2 = asym_bottleneck_module(in_channels=32, out_channels=64, p_drop=p_drop)
+        # conv layers set 3 - down 3
+        self.down_conv_3 = asym_bottleneck_module(in_channels=64, out_channels=128, p_drop=p_drop, compress_factor=4)
+        # conv layers set 4 - base
+        self.base_conv = asym_bottleneck_module(in_channels=128, out_channels=256, p_drop=p_drop, compress_factor=4)
+        # upsample convolution and up set 1
+        self.upsample_1 = bottleneck_transpose_conv(in_channels=256, out_channels=256, p_drop=p_drop, compress_factor=4)
+        self.up_conv_1 = asym_bottleneck_module(in_channels=128+256, out_channels=128, p_drop=p_drop, compress_factor=4)
+        # upsample 2 and up 2
+        self.upsample_2 = bottleneck_transpose_conv(in_channels=128, out_channels=128, p_drop=p_drop, compress_factor=4)
+        self.up_conv_2 = asym_bottleneck_module(in_channels=64+128, out_channels=64, p_drop=p_drop, compress_factor=4)
+        # upsample and up 3
+        self.upsample_3 = bottleneck_transpose_conv(in_channels=64, out_channels=64, p_drop=p_drop, compress_factor=4)
+        self.up_conv_3 = asym_bottleneck_module(in_channels=32+64, out_channels=32, p_drop=p_drop)
+        # upsample 4 and prediction convolution
+        self.upsample_4 = bottleneck_transpose_conv(in_channels=32, out_channels=32, p_drop=p_drop, scale_factor=(depth_stride,2,2))
+        self.up_conv_4 = asym_bottleneck_module(in_channels=32, out_channels=32, p_drop=p_drop)
+        self.pred = nn.Conv3d(in_channels=32, out_channels=int(n_classes), kernel_size=1)
+
+    @torch.cuda.amp.autocast()
+    def forward(self, x, out_size):
+        # yolo conv
+        x = F.relu(self.yolo_bn(self.yolo_input_conv(x)))
+        x = self.yolo_drop(x)
+        # Down block 1
+        down1 = self.down_conv_1(x) 
+        x = F.max_pool3d(down1, (2,2,2))
+        # Down block 2
+        down2 = self.down_conv_2(x)
+        x = F.max_pool3d(down2, (2,2,2))
+        # Down block 3
+        down3 = self.down_conv_3(x)
+        x = F.max_pool3d(down3, (2,2,2))
+        # Base block
+        x = self.base_conv(x)
+        # Upsample and up block 1
+        x = self.upsample_1(x)
+        x = torch.cat((x, down3), dim=1)
+        x = self.up_conv_1(x)
+        # Upsample 2 and up block 2
+        x = self.upsample_2(x)
+        x = torch.cat((x, down2), dim=1)
+        x = self.up_conv_2(x)
+        # Upsample 3
+        x = self.upsample_3(x)
+        x = torch.cat((x, down1), dim=1)
+        x = self.up_conv_3(x)
+        # Upsample 4 and predict
+        x = self.upsample_4(x)
+        x = self.up_conv_4(x)
+        return F.interpolate(self.pred(x), size=out_size, mode='nearest')
+
+    def load_best(self, checkpoint_dir, logger=None):
+        # load previous best weights
+        model_dict = self.state_dict()
+        state = torch.load(os.path.join(checkpoint_dir, 'best_checkpoint.pytorch'))
+        best_checkpoint_dict = state['model_state_dict']
+        # remove the 'module.' wrapper
+        renamed_dict = OrderedDict()
+        for key, value in best_checkpoint_dict.items():
+            new_key = key.replace('module.','')
+            renamed_dict[new_key] = value
+        # identify which layers to grab
+        renamed_dict = {k: v for k, v in list(renamed_dict.items()) if k in model_dict}
+        model_dict.update(renamed_dict)
+        self.load_state_dict(model_dict)
+        if logger:
+            logger.info("Loaded layers from previous best checkpoint:")
+            logger.info([k for k, v in list(renamed_dict.items())])
