@@ -29,3 +29,5 @@ __pycache__/model_archive.cpython-38.pyc
 check_segs.ipynb
 resampling.py
 
+/data/
+*.pytorch
