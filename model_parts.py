@@ -181,6 +181,23 @@ class asym_bottleneck_module(nn.Module):
             return self.bottleneck_conv(x) + self.res_conv(x)
         else:
             return self.bottleneck_conv(x) + x
+
+class kearney_attention(nn.Module):
+    def __init__(self, x1_channels, x2_channels):
+        super(kearney_attention, self).__init__()
+        self.x1_conv_1 = nn.Conv3d(in_channels=x1_channels, out_channels=x1_channels, kernel_size=(1,1,1), padding=0)
+        self.x2_conv_1 = nn.Conv3d(in_channels=x2_channels, out_channels=x1_channels, kernel_size=(1,1,1), padding=0)
+        self.chain = nn.Sequential(
+            nn.ReLU(inplace=True),
+            nn.Conv3d(in_channels=x1_channels, out_channels=x1_channels, kernel_size=(1,1,1), padding=0),
+            nn.BatchNorm3d(x1_channels),
+            nn.Sigmoid()
+        )
+    def forward(self, x1, x2):
+        x12 = self.x1_conv_1(x1) + self.x2_conv_1(x2)
+        x12 = self.chain(x12)
+        return x1 * x12
+
 '''
 class strided_asym_bottleneck_module(nn.Module):
     def __init__(self, in_channels, out_channels, p_drop=0.25):
