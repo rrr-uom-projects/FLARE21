@@ -31,7 +31,7 @@ def windowLevelNormalize(image, level, window):
     maxval = level + window/2
     wld = np.clip(image, minval, maxval)
     wld -= minval
-    wld /= window
+    wld *= (1 / window)
     return wld
 
 def get_logger(name, level=logging.INFO):
