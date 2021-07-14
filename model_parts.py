@@ -182,6 +182,28 @@ class asym_bottleneck_module(nn.Module):
         else:
             return self.bottleneck_conv(x) + x
 
+class asym_bottleneck_transpose_conv(nn.Module):
+    def __init__(self, in_channels, out_channels, p_drop, scale_factor=(2,2,2), compress_factor=2):
+        super(asym_bottleneck_transpose_conv, self).__init__()
+        self.asym_bottleneck_transpose_conv = nn.Sequential(
+            nn.Conv3d(in_channels=in_channels, out_channels=in_channels//compress_factor, kernel_size=(1,1,1)),
+            nn.BatchNorm3d(in_channels//compress_factor),
+            nn.ReLU(inplace=True),
+            nn.Dropout3d(p=p_drop, inplace=True),
+            nn.ConvTranspose3d(in_channels=in_channels//compress_factor, out_channels=in_channels//compress_factor, kernel_size=(scale_factor[0],1,1), stride=(scale_factor[0],1,1)), # stride & kernel (1,2,2) gives (D_in, 2*H_in, 2*W_in)
+            nn.ConvTranspose3d(in_channels=in_channels//compress_factor, out_channels=in_channels//compress_factor, kernel_size=(1,scale_factor[1],1), stride=(1,scale_factor[1],1)), # stride & kernel (1,2,2) gives (D_in, 2*H_in, 2*W_in)
+            nn.ConvTranspose3d(in_channels=in_channels//compress_factor, out_channels=in_channels//compress_factor, kernel_size=(1,1,scale_factor[2]), stride=(1,1,scale_factor[2])), # stride & kernel (1,2,2) gives (D_in, 2*H_in, 2*W_in)
+            nn.BatchNorm3d(in_channels//compress_factor),
+            nn.ReLU(inplace=True),
+            nn.Dropout3d(p=p_drop, inplace=True),
+            nn.Conv3d(in_channels=in_channels//compress_factor, out_channels=out_channels, kernel_size=(1,1,1)),
+            nn.BatchNorm3d(out_channels),
+            nn.ReLU(inplace=True),
+            nn.Dropout3d(p=p_drop, inplace=True),
+        )
+    def forward(self, x):
+        return self.asym_bottleneck_transpose_conv(x)
+
 class kearney_attention(nn.Module):
     def __init__(self, x1_channels, x2_channels):
         super(kearney_attention, self).__init__()
