@@ -816,13 +816,13 @@ class tiny_segmenter(general_model):
 
 ## Same as tiny_segmenter but using assymetric yolo in-conv
 # Parameters: 443,094 -> 435,958
-# FLOPS: 94% of tiny
+# FLOPS: 48,076,222,464 94% of tiny
 # Able to accelerate this with onnx, maybe able to run on cpu-only?
 class nano_segmenter(general_model):
     def __init__(self, n_classes=7, in_channels=1, p_drop=0.25):
         super(nano_segmenter, self).__init__()
         # Input --> (in_channels, 96, 192, 192) or (in_channels, 96, 128, 128)
-        self.yolo_input_conv_1 = nn.Conv3d(in_channels=in_channels, out_channels=16, kernel_size=(7,1,1), padding=(3,0,0), stride=(1,1,1))
+        self.yolo_input_conv_1 = nn.Conv3d(in_channels=in_channels, out_channels=16, kernel_size=(7,1,1), padding=(3,0,0), stride=(2,1,1))
         self.yolo_input_conv_2 = nn.Conv3d(in_channels=16, out_channels=16, kernel_size=(1,7,1), padding=(0,3,0), stride=(1,2,1))
         self.yolo_input_conv_3 = nn.Conv3d(in_channels=16, out_channels=16, kernel_size=(1,1,7), padding=(0,0,3), stride=(1,1,2))
         self.yolo_bn = nn.BatchNorm3d(16)
@@ -845,7 +845,7 @@ class nano_segmenter(general_model):
         self.upsample_3 = bottleneck_transpose_conv(in_channels=64, out_channels=64, p_drop=p_drop, compress_factor=4)
         self.up_conv_3 = asym_bottleneck_module(in_channels=32+64, out_channels=32, p_drop=p_drop)
         # upsample 4 and prediction convolution
-        self.upsample_4 = bottleneck_transpose_conv(in_channels=32, out_channels=32, p_drop=p_drop, scale_factor=(1,2,2))
+        self.upsample_4 = bottleneck_transpose_conv(in_channels=32, out_channels=32, p_drop=p_drop, scale_factor=(2,2,2))
         self.up_conv_4 = asym_bottleneck_module(in_channels=32, out_channels=32, p_drop=p_drop)
         self.pred = nn.Conv3d(in_channels=32, out_channels=int(n_classes), kernel_size=1)
 
