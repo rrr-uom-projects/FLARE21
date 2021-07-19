@@ -9,11 +9,11 @@ import os
 
 imdir = "/data/FLARE21/training_data/TrainingImg/"
 maskdir = "/data/FLARE21/training_data/TrainingMask/"
-out_dir = "/data/FLARE21/training_data_128_sameKidneys/"
+out_dir = "/data/FLARE21/training_data_160_sameKidneys/"
 out_imdir = os.path.join(out_dir, "scaled_ims/")
 out_maskdir = os.path.join(out_dir, "scaled_masks/")
 
-out_resolution = (96,128,128)
+out_resolution = (96,160,160)
 
 # OARs : 1 - Liver, 2 - Kidneys, 3 - Spleen, 4 - Pancreas
 # IMPORTANT! : sitk_image.GetDirection()[-1] -> (1 or -1) -> flip cranio-caudally if -1
