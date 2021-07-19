@@ -816,7 +816,7 @@ class tiny_segmenter(general_model):
 
 ## Same as tiny_segmenter but using assymetric yolo in-conv
 # Parameters: 443,094 -> 435,958
-# FLOPS: 48,076,222,464 94% of tiny
+# FLOPS: 48,076,222,464 66% of tiny
 # Able to accelerate this with onnx, maybe able to run on cpu-only?
 class nano_segmenter(general_model):
     def __init__(self, n_classes=7, in_channels=1, p_drop=0.25):

@@ -9,19 +9,19 @@ import nvgpu
 from multiprocessing import Process, Value
 
 from model_archive import yolo_segmenter
-from models import superres_segmenter, fullRes_segmenter, yolo_transpose_plusplus, tiny_segmenter
+from models import superres_segmenter, fullRes_segmenter, yolo_transpose_plusplus, tiny_segmenter, tiny_inference_segmenter, tiny_attention_segmenter, nano_segmenter
 # light_segmenter, bottleneck_yolo_segmenter, asymmetric_yolo_segmenter, asym_bottleneck_yolo_segmenter, 
 # bridged_yolo_segmenter, yolo_transpose, yolo_transpose_plusplus, ytp_learnableWL
 from roughSeg.utils import k_fold_split_train_val_test, get_logger, getFiles, windowLevelNormalize
 import roughSeg.deepmind_metrics as deepmind_metrics
 
-source_dir = "/data/FLARE21/training_data_192/"
+source_dir = "/data/FLARE21/training_data_192_sameKidneys/"
 input_dir = "/data/FLARE21/training_data/TrainingImg/"
 mask_dir = "/data/FLARE21/training_data/TrainingMask/"
-output_dir = "/data/FLARE21/results/full_runs/tiny_segmenter/"
+output_dir = "/data/FLARE21/results/full_runs/nano_segmenter_192/"
 input_size = (96,192,192)
-folds = [1]#[1,2,3,4,5]
-organs = ["liver", "kidney L", "kidney R", "spleen", "pancreas"]
+folds = [4]#[1,2,3,4,5]
+organs = ["liver", "kidneys", "spleen", "pancreas"]
 base_vram = nvgpu.gpu_info()[0]['mem_used']
 
 def dice(a, b):
@@ -56,7 +56,7 @@ def main():
         pass
 
     # Create the model
-    model = tiny_segmenter(n_classes=6, in_channels=2, p_drop=0) #, initial_levels=[1,1,1], initial_windows=[1,1,1]
+    model = nano_segmenter(n_classes=6, in_channels=2, p_drop=0) #, initial_levels=[1,1,1], initial_windows=[1,1,1]
 
     # put the model on GPU
     model.to('cuda')
@@ -68,7 +68,7 @@ def main():
     # iterate over folds
     for fdx, fold_num in enumerate(folds):
         # get checkpoint dir
-        checkpoint_dir = f"/data/FLARE21/models/full_runs/tiny_segmenter/fold{fold_num}/"
+        checkpoint_dir = f"/data/FLARE21/models/full_runs/nano_segmenter_192/fold{fold_num}/"
 
         # load in the best model version
         model.load_best(checkpoint_dir, logger)
@@ -111,6 +111,7 @@ def main():
             ct_im = ct_im2[np.newaxis].copy() # add dummy batch axis
             # run forward pass
             t = time.time()
+            #prediction = model(torch.tensor(ct_im, dtype=torch.float).to('cuda'), gold_mask.shape)
             prediction = model(torch.tensor(ct_im, dtype=torch.float).to('cuda'))
             logger.info(f"{test_fname} inference took {time.time()-t:.4f} seconds")
             # change prediction from one-hot to mask and move back to cpu for metric calculation

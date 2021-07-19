@@ -34,7 +34,7 @@ def main():
     global args
 
     # set directories
-    checkpoint_dir = "/data/FLARE21/models/full_runs/tiny_attention_segmenter_192/fold"+str(args.fold_num)
+    checkpoint_dir = "/data/FLARE21/models/full_runs/nano_segmenter_192/fold"+str(args.fold_num)
     imagedir = os.path.join(source_dir, "scaled_ims/")
     maskdir = os.path.join(source_dir, "scaled_masks/")
 
@@ -43,7 +43,7 @@ def main():
 
     # Create the model
     n_classes = 6
-    model = tiny_attention_segmenter(n_classes=n_classes, in_channels=2, p_drop=0)
+    model = nano_segmenter(n_classes=n_classes, in_channels=2, p_drop=0)
 
     for param in model.parameters():
         param.requires_grad = True
@@ -54,8 +54,8 @@ def main():
 
     # Log the number of learnable parameters
     logger.info(f'Number of learnable params {get_number_of_learnable_parameters(model)}')
-    train_BS = int(4) # change 3->2 for asymmetric
-    val_BS = int(4)
+    train_BS = int(6) # change 3->2 for asymmetric
+    val_BS = int(6)
     train_workers = int(4)
     val_workers = int(4)
 
