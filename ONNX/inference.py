@@ -3,7 +3,6 @@ ONNX model inference
 
 """
 import os
-from onnxruntime.capi.onnxruntime_inference_collection import InferenceSession
 import torch
 import sys
 import numpy as np
@@ -11,7 +10,7 @@ sys.path.append('..')
 import onnxruntime as ort
 import time
 from multiprocessing import Pool
-import itertools
+from argparse import ArgumentParser
 
 
 from torch.utils.data import Dataset, DataLoader
@@ -25,15 +24,23 @@ from roughSeg.utils import k_fold_split_train_val_test, getFiles
 img_dir = '/data/FLARE21/training_data_192_sameKidneys/scaled_ims/'  # * path to data
 model_filename = './compiled_model.quant.onnx'
 
+
+parser = ArgumentParser(prog="Run ONNX inference on test set")
+parser.add_argument("img_dir", help="Path to test images", type=str)
+parser.add_argument("model_path", help="Path to ONNX model", type=str)
+parser.add_argument("outsize_path", help="Path to CSV file with output sizes", type=str)
+args = parser.parse_args()
+
 test_workers = 8
-batch_size=1
-num_threads = 16 #* Num threads to use (MAX on PEPITA: 24*2)
+batch_size = 1
+
 
 #~ Dataset class
 class customDataset(Dataset):
-    def __init__(self, image_path, transforms, indices, apply_WL, window=[400,100], level=[50,60]):
+    def __init__(self, image_path, out_size_file, transforms, indices, apply_WL, window=[400,100], level=[50,60]):
         self.indices = indices
         self.image_path = image_path
+        self.out_size = np.load(out_size_file)
         self.organ_to_idx = ["Background", "Liver", "Kidney", "Spleen", "Pancreas"]
         self.names = self.idx_to_names(image_path)
         self.availableImages = [sorted(getFiles(image_path))[
@@ -112,6 +119,7 @@ class customDataset(Dataset):
         if self.transforms:
             augmented = self.transforms({"image": img})
             sample = {'inputs': augmented["image"],
+                      'out_size': (self.out_size[index], 512, 512),
                       'id': pid}
             return sample
 
@@ -119,37 +127,11 @@ class customDataset(Dataset):
             print('Need some transforms - minimum ToTensor()')
             raise
 
+def sigmoid(x):
+    return 1/(1+np.exp(-x))
 
 def to_numpy(x):
     return x.detach().cpu().numpy() if x.requires_grad else x.cpu().numpy()
-
-class Inference(object):
-    def __init__(self, data, inf_session, workers = os.cpu_count()-1):
-        print("Constructor (in pid=%d)..." % os.getpid())
-
-        self.count = data.__len__()
-        #self.sess_options = sess_options
-        self.inf_session = inf_session
-        #* Pooling
-        pool = Pool(processes=workers)
-        self.results = pool.map(self.forward, data)
-        pool.close()
-        pool.join()
-
-    def __del__(self):
-        self.count -= 1
-        print("... Destructor (in pid=%d) count=%d" % (os.getpid(), self.count))
-    
-    def process_obj(self, index):
-        print ("object %d" % index)
-        return "results"
-
-    def forward(self, data):
-        #~ Inference
-        inputs = {self.inf_session.get_inputs()[0].name: to_numpy(data['inputs'])}
-        outputs = np.array(self.inf_session.run(None, inputs))
-        return outputs
-
 
 def main():
     test_transforms = Compose([
@@ -159,7 +141,7 @@ def main():
     dataset_size = len(getFiles(img_dir))
     _, _, test_idx = k_fold_split_train_val_test(
         dataset_size, fold_num=1, seed=230597) #! Use test set from first fold for now
-    test_dataset = customDataset(img_dir, test_transforms, indices=test_idx, apply_WL=True)
+    test_dataset = customDataset(args.img_dir, args.outsize_path, test_transforms, indices=test_idx, apply_WL=True)
 
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True, pin_memory=False,
                              num_workers=test_workers, worker_init_fn=lambda _: np.random.seed(
@@ -170,25 +152,27 @@ def main():
     #* ONNX inference session
     sess_options = ort.SessionOptions()
     sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-    sess_options.execution_mode = ort.ExecutionMode.ORT_PARALLEL  # ! or ORT_SEQUENTIAL
+    sess_options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL  # ! or ORT_SEQUENTIAL
     sess_options.optimized_model_filepath = "./optimized_model.onnx"
     sess_options.log_severity_level = 1
     sess_options.enable_profiling = False
     sess_options.inter_op_num_threads = os.cpu_count() - 1 
     sess_options.intra_op_num_threads = os.cpu_count() - 1
     ort_session = ort.InferenceSession(
-        model_filename, sess_options=sess_options)
+        args.model_path, sess_options=sess_options)
     
     t = time.time()
-    output_list = []
+    output_dict = {}
     for data in test_loader:
-        inputs = {ort_session.get_inputs()[0].name: to_numpy(data['inputs'])}
-        outputs = np.array(ort_session.run(None, inputs))
-        output_list.append(outputs)
-    #Inference(test_loader, ort_session)
-    print(len(output_list))
-    out = np.array(output_list).reshape(len(test_idx), 6, 96, 192, 192)
-    print(out.shape)
+        out_size = [int(x) for x in data['out_size']]
+        inputs = [data['inputs'], *(torch.tensor(x) for x in out_size)]
+        ort_inputs = {key.name: to_numpy(x) for key, x in zip(ort_session.get_inputs(), inputs)}
+        outputs = np.array(ort_session.run(None, ort_inputs))
+        output_dict[data['id'][0]] = sigmoid(outputs)
+        #break
+
+    for key, val in output_dict.items():
+        np.save(f'./outputs/{key}', val)
     print(f'Execution time: {time.time() - t} for {len(test_idx)} examples.')
 
 if __name__ == '__main__':

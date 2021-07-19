@@ -985,7 +985,9 @@ class tiny_inference_segmenter(general_model):
         self.pred = nn.Conv3d(in_channels=32, out_channels=int(n_classes), kernel_size=1)
 
     @torch.cuda.amp.autocast()
-    def forward(self, x, out_size):
+    def forward(self, x, *args):
+        out_size = args
+        print(out_size)
         # yolo conv
         x = F.relu(self.yolo_bn(self.yolo_input_conv(x)))
         x = self.yolo_drop(x)
