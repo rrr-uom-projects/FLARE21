@@ -9,7 +9,7 @@ import random
 import os
 import argparse as ap
 
-from models import yolo_transpose_plusplus, tiny_segmenter, tiny_attention_segmenter
+from models import yolo_transpose_plusplus, tiny_segmenter, tiny_attention_segmenter, nano_segmenter
 # light_segmenter, yolo_segmenter, bottleneck_yolo_segmenter, asymmetric_yolo_segmenter, asym_bottleneck_yolo_segmenter, 
 # bridged_yolo_segmenter, yolo_transpose, ytp_learnableWL 
 from trainer import segmenter_trainer
@@ -34,7 +34,7 @@ def main():
     global args
 
     # set directories
-    checkpoint_dir = "/data/FLARE21/models/full_runs/tiny_segmenter_192/fold"+str(args.fold_num)
+    checkpoint_dir = "/data/FLARE21/models/full_runs/tiny_attention_segmenter_192/fold"+str(args.fold_num)
     imagedir = os.path.join(source_dir, "scaled_ims/")
     maskdir = os.path.join(source_dir, "scaled_masks/")
 
@@ -43,7 +43,7 @@ def main():
 
     # Create the model
     n_classes = 6
-    model = tiny_segmenter(n_classes=n_classes, in_channels=2, p_drop=0, depth_stride=1)
+    model = tiny_attention_segmenter(n_classes=n_classes, in_channels=2, p_drop=0)
 
     for param in model.parameters():
         param.requires_grad = True
