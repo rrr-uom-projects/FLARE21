@@ -4,6 +4,7 @@ from scipy import ndimage
 import os
 import time
 import SimpleITK as sitk
+from skimage.transform import resize
 
 from roughSeg.utils import k_fold_split_train_val_test, get_logger, getFiles, windowLevelNormalize
 import roughSeg.deepmind_metrics as deepmind_metrics
@@ -68,10 +69,16 @@ def main():
         # -> OAR labels : 0 - Background, 1 - Liver, 2 - Kidneys, 3 - Spleen, 4 - Pancreas
         prediction = np.clip(prediction, 0, prediction.max())
         # check
-        print(test_fname)
-        print(prediction.shape)
-        print(gold_mask.shape)
-        assert(prediction.shape==gold_mask.shape)
+        assert(prediction.shape==(96,192,192))
+        # drop the body and label the kidneys together          # OAR labels : 1 - Body, 2 - Liver, 3 - Kidney L, 4 - Kidney R, 5 - Spleen, 6 - Pancreas
+        prediction -= 1                                         # -> OAR labels : 0 - Body, 1 - Liver, 2 - Kidney L, 3 - Kidney R, 4 - Spleen, 5 - Pancreas
+        print("WARNING: assuming model trained with kidneys as same label...")
+        #prediction[prediction >= 3] -= 1                        # -> OAR labels : 0 - Body, 1 - Liver, 2 - Kidneys, 3 - Spleen, 4 - Pancreas
+        prediction = np.clip(prediction, 0, prediction.max())   # -> OAR labels : 0 - Background, 1 - Liver, 2 - Kidneys, 3 - Spleen, 4 - Pancreas        
+        # rescale the prediction to match the full-resolution mask
+        t = time.time()
+        prediction = np.round(resize(prediction, output_shape=gold_mask.shape, order=0, anti_aliasing=False, preserve_range=True)).astype(np.uint8)
+        logger.info(f"Image upsampling took {time.time()-t:.4f} seconds")
         # get present labels
         labels_present = labels_present_all[test_ind]
         # calculate metrics
