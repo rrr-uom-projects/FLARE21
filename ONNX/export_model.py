@@ -36,7 +36,7 @@ def to_numpy(x):
     return x.detach().cpu().numpy() if x.requires_grad else x.cpu().numpy()
 
 def export():
-    model  = tiny_inference_segmenter(n_classes=6, in_channels=2, p_drop=0.25)
+    model  = tiny_segmenter(n_classes=6, in_channels=2, p_drop=0.25)
 
     #* Load trained model
     model.load_best(args.weights) #* Will default to GPU if detected + defaults to best_checkpoint.pytorch in weights directory
@@ -45,10 +45,14 @@ def export():
     #* Random input w. correct shape
     out_size = (96, 512, 512)
     x = torch.randn(1, 2, 96, 192, 192, requires_grad=True, dtype=torch.float32) #! B x C x H x W x D
-    output = model(x, *out_size)
+    #output = model(x, *out_size)
+    output = model(x)
     print(output.shape)
     #TODO Optimise model https://www.onnxruntime.ai/docs/resources/graph-optimizations.html#python-api-example
-    torch.onnx.export(model, args=(x, *out_size), f=args.output + '.onnx', 
+    torch.onnx.export(model, 
+                        args = x,
+                        #args=(x, *out_size), 
+                        f=args.output + '.onnx', 
                         export_params=True, opset_version=13,
                         do_constant_folding=True,
                         input_names = ['img', 'depth', 'height', 'width'],
@@ -66,7 +70,8 @@ def export():
     if args.check_output:
         #* Runs on CPU
         ort_session = ort.InferenceSession(args.output + '.onnx')
-        inputs = [x, *(torch.tensor(x) for x in out_size)]
+        #inputs = [x, *(torch.tensor(x) for x in out_size)]
+        inputs = [x]
         print([x.shape for x in inputs])
         ort_inputs = {key.name: to_numpy(x) for key, x in zip(ort_session.get_inputs(), inputs)}
         ort_outputs = ort_session.run(None, ort_inputs)

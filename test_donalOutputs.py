@@ -60,6 +60,13 @@ def main():
         #prediction = np.squeeze(np.load(os.path.join(input_dir, test_fname)))
         #prediction = np.argmax(prediction, axis=0).astype(int8)
         prediction = np.load(os.path.join(input_dir, test_fname))
+        # drop the body and label the kidneys together          # OAR labels : 1 - Body, 2 - Liver, 3 - Kidney L, 4 - Kidney R, 5 - Spleen, 6 - Pancreas
+        # -> OAR labels : 0 - Body, 1 - Liver, 2 - Kidney L, 3 - Kidney R, 4 - Spleen, 5 - Pancreas
+        prediction -= 1
+        print("WARNING: assuming model trained with kidneys as same label...")
+        #prediction[prediction >= 3] -= 1                        # -> OAR labels : 0 - Body, 1 - Liver, 2 - Kidneys, 3 - Spleen, 4 - Pancreas
+        # -> OAR labels : 0 - Background, 1 - Liver, 2 - Kidneys, 3 - Spleen, 4 - Pancreas
+        prediction = np.clip(prediction, 0, prediction.max())
         # check
         print(test_fname)
         print(prediction.shape)
@@ -69,6 +76,7 @@ def main():
         labels_present = labels_present_all[test_ind]
         # calculate metrics
         first_oar_idx = 1
+
         for organ_idx, organ_num in enumerate(range(first_oar_idx, gold_mask.max()+1)):
             # check if label present in gs, skip if not
             if not labels_present[organ_idx]:
@@ -93,6 +101,7 @@ def main():
             # store result
             res[0, pat_idx, organ_idx, 0] = dice(gs, pred)
             res[0, pat_idx, organ_idx, 1] = surface_DSC
+            
 
     # save results
     np.save(os.path.join(output_dir, "full_res_results_grid.npy"), res)

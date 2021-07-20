@@ -162,20 +162,17 @@ def main():
     t = time.time()
     output_dict = {}
     for data in test_loader:
-        print(data['id'][0])
-        out_size = [int(x) for x in data['out_size']]
-        inputs = [data['inputs'], *(torch.tensor(x) for x in out_size)]
-
-        fig, ax = plt.subplots(1, 1, figsize=(10, 10))
-        ax.imshow(inputs[0][0, 0, 45], cmap='gray')
-
-        fig.savefig(f'./outputs/{data["id"][0]}.png')
+        #out_size = [int(x) for x in data['out_size']]
+        #inputs = [data['inputs'], *(torch.tensor(x) for x in out_size)]
+        inputs = [data['inputs']]
+        # fig, ax = plt.subplots(1, 1, figsize=(10, 10))
+        # ax.imshow(inputs[0][0, 0, 45], cmap='gray')
+        # fig.savefig(f'./outputs/{data["id"][0]}.png')
 
         ort_inputs = {key.name: to_numpy(x) for key, x in zip(ort_session.get_inputs(), inputs)}
         outputs = np.array(ort_session.run(None, ort_inputs))
         output_dict[data['id'][0]] = np.argmax(
             np.squeeze(outputs), axis=0).astype(np.int8)
-        break
 
     for key, val in output_dict.items():
         np.save(
