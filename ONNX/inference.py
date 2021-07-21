@@ -18,11 +18,7 @@ from torch.utils.data import Dataset, DataLoader
 from albumentations.pytorch.transforms import ToTensor
 
 from roughSeg.utils import k_fold_split_train_val_test, getFiles
-
-
-img_dir = '/data/FLARE21/training_data_192_sameKidneys/scaled_ims/'  # * path to data
-model_filename = './compiled_model.quant.onnx'
-
+from train import segmenter_Dataset
 
 parser = ArgumentParser(prog="Run ONNX inference on test set")
 parser.add_argument("img_dir", help="Path to test images", type=str)
@@ -138,10 +134,10 @@ def main():
         ToTensor(), #*Channels first
     ])
 
-    dataset_size = len(getFiles(img_dir))
+    dataset_size = len(getFiles(args.img_dir))
     _, _, test_idx = k_fold_split_train_val_test(
         dataset_size, fold_num=1, seed=230597) #! Use test set from first fold for now
-    test_dataset = customDataset(args.img_dir, args.outsize_path, test_transforms, window=[400, 100], level=[100, 50], indices=test_idx, apply_WL=True)
+    test_dataset = customDataset(args.img_dir, args.outsize_path, test_transforms, window=[400, 100], level=[50, 60], indices=test_idx, apply_WL=True)
 
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
     
@@ -149,13 +145,14 @@ def main():
     print(ort.get_device())
     #* ONNX inference session
     sess_options = ort.SessionOptions()
-    sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-    sess_options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL  # ! or ORT_SEQUENTIAL
+    sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_EXTENDED
+    sess_options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL # ! or ORT_SEQUENTIAL
     sess_options.optimized_model_filepath = "./optimized_model.onnx"
     sess_options.log_severity_level = 0
     sess_options.enable_profiling = False
     sess_options.inter_op_num_threads = os.cpu_count() - 1 
     sess_options.intra_op_num_threads = os.cpu_count() - 1
+    print(args.model_path)
     ort_session = ort.InferenceSession(
         args.model_path, sess_options=sess_options)
     
@@ -164,20 +161,18 @@ def main():
     for data in test_loader:
         #out_size = [int(x) for x in data['out_size']]
         #inputs = [data['inputs'], *(torch.tensor(x) for x in out_size)]
+        print(data['id'])
         inputs = [data['inputs']]
-        # fig, ax = plt.subplots(1, 1, figsize=(10, 10))
-        # ax.imshow(inputs[0][0, 0, 45], cmap='gray')
-        # fig.savefig(f'./outputs/{data["id"][0]}.png')
-
         ort_inputs = {key.name: to_numpy(x) for key, x in zip(ort_session.get_inputs(), inputs)}
         outputs = np.array(ort_session.run(None, ort_inputs))
         output_dict[data['id'][0]] = np.argmax(
             np.squeeze(outputs), axis=0).astype(np.int8)
 
+    print(f'Execution time: {time.time() - t} for {len(test_idx)} examples.')
     for key, val in output_dict.items():
         np.save(
-            f'/data/FLARE21/models/full_runs/tiny_segmenter_192/fold1/outputs/{key}.npy', val)
-    print(f'Execution time: {time.time() - t} for {len(test_idx)} examples.')
+            f'/data/FLARE21/models/full_runs/nano_segmenter_192/fold1/outputs/{key}.npy', val)
+    
 
 if __name__ == '__main__':
     main()
