@@ -18,9 +18,9 @@ import roughSeg.deepmind_metrics as deepmind_metrics
 source_dir = "/data/FLARE21/training_data_192_sameKidneys/"
 input_dir = "/data/FLARE21/training_data/TrainingImg/"
 mask_dir = "/data/FLARE21/training_data/TrainingMask/"
-output_dir = "/data/FLARE21/results/full_runs/nano_segmenter_192/"
+output_dir = "/data/FLARE21/results/full_runs/tiny_attention_segmenter_192/"
 input_size = (96,192,192)
-folds = [4]#[1,2,3,4,5]
+folds = [1,2,3,4,5]
 organs = ["liver", "kidneys", "spleen", "pancreas"]
 base_vram = nvgpu.gpu_info()[0]['mem_used']
 
@@ -56,7 +56,7 @@ def main():
         pass
 
     # Create the model
-    model = nano_segmenter(n_classes=6, in_channels=2, p_drop=0) #, initial_levels=[1,1,1], initial_windows=[1,1,1]
+    model = tiny_attention_segmenter(n_classes=6, in_channels=2, p_drop=0) #, initial_levels=[1,1,1], initial_windows=[1,1,1]
 
     # put the model on GPU
     model.to('cuda')
@@ -68,7 +68,7 @@ def main():
     # iterate over folds
     for fdx, fold_num in enumerate(folds):
         # get checkpoint dir
-        checkpoint_dir = f"/data/FLARE21/models/full_runs/nano_segmenter_192/fold{fold_num}/"
+        checkpoint_dir = f"/data/FLARE21/models/full_runs/tiny_attention_segmenter_192/fold{fold_num}/"
 
         # load in the best model version
         model.load_best(checkpoint_dir, logger)
