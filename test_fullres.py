@@ -18,9 +18,9 @@ import roughSeg.deepmind_metrics as deepmind_metrics
 source_dir = "/data/FLARE21/training_data_192_sameKidneys/"
 input_dir = "/data/FLARE21/training_data/TrainingImg/"
 mask_dir = "/data/FLARE21/training_data/TrainingMask/"
-output_dir = "/data/FLARE21/results/full_runs/nano_segmenter_192/"
+output_dir = "/data/FLARE21/results/full_runs/nano_segmenter_192_1mm/"
 input_size = (96,192,192)
-folds = [4]#[1,2,3,4,5]
+folds = [1,2,3,4,5]
 organs = ["liver", "kidneys", "spleen", "pancreas"]
 base_vram = nvgpu.gpu_info()[0]['mem_used']
 

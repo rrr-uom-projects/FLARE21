@@ -10,9 +10,9 @@ from roughSeg.utils import k_fold_split_train_val_test, get_logger, getFiles, wi
 import roughSeg.deepmind_metrics as deepmind_metrics
 
 source_dir = "/data/FLARE21/training_data_192_sameKidneys/"
-input_dir = "/data/FLARE21/models/full_runs/tiny_segmenter_192/fold1/outputs/"
+input_dir = "/data/FLARE21/models/full_runs/nano_segmenter_192/fold1/outputs/"
 mask_dir = "/data/FLARE21/training_data/TrainingMask/"
-output_dir = "/data/FLARE21/results/full_runs/tiny_segmenter_192_donalOutputs/"
+output_dir = "/data/FLARE21/results/full_runs/nano_segmenter_192_donalOutputs/"
 input_size = (96,192,192)
 folds = [1]
 organs = ["liver", "kidneys", "spleen", "pancreas"]
@@ -48,6 +48,8 @@ def main():
 
     # iterate over each testing image
     for pat_idx, (test_fname, test_ind) in enumerate(zip(test_mask_fnames, test_inds)):
+        print(test_fname)
+        #if test_fname != 'train_136.npy': continue
         # load gold standard segmentation in full resolution
         sitk_mask = sitk.ReadImage(os.path.join(mask_dir, test_fname.replace('.npy','.nii.gz')))
         gold_mask = sitk.GetArrayFromImage(sitk_mask).astype(int)
@@ -61,13 +63,6 @@ def main():
         #prediction = np.squeeze(np.load(os.path.join(input_dir, test_fname)))
         #prediction = np.argmax(prediction, axis=0).astype(int8)
         prediction = np.load(os.path.join(input_dir, test_fname))
-        # drop the body and label the kidneys together          # OAR labels : 1 - Body, 2 - Liver, 3 - Kidney L, 4 - Kidney R, 5 - Spleen, 6 - Pancreas
-        # -> OAR labels : 0 - Body, 1 - Liver, 2 - Kidney L, 3 - Kidney R, 4 - Spleen, 5 - Pancreas
-        prediction -= 1
-        print("WARNING: assuming model trained with kidneys as same label...")
-        #prediction[prediction >= 3] -= 1                        # -> OAR labels : 0 - Body, 1 - Liver, 2 - Kidneys, 3 - Spleen, 4 - Pancreas
-        # -> OAR labels : 0 - Background, 1 - Liver, 2 - Kidneys, 3 - Spleen, 4 - Pancreas
-        prediction = np.clip(prediction, 0, prediction.max())
         # check
         assert(prediction.shape==(96,192,192))
         # drop the body and label the kidneys together          # OAR labels : 1 - Body, 2 - Liver, 3 - Kidney L, 4 - Kidney R, 5 - Spleen, 6 - Pancreas
@@ -78,6 +73,8 @@ def main():
         # rescale the prediction to match the full-resolution mask
         t = time.time()
         prediction = np.round(resize(prediction, output_shape=gold_mask.shape, order=0, anti_aliasing=False, preserve_range=True)).astype(np.uint8)
+        np.save(
+            f'/home/donal/data/FLARE21/results/full_runs/tiny_segmenter_192_donalOutputs/masks/{test_fname}', prediction)
         logger.info(f"Image upsampling took {time.time()-t:.4f} seconds")
         # get present labels
         labels_present = labels_present_all[test_ind]
@@ -106,6 +103,7 @@ def main():
             # compute desired metric
             surface_DSC = deepmind_metrics.compute_surface_dice_at_tolerance(surface_distances, tolerance_mm=5.)
             # store result
+            print(organ_idx, dice(gs, pred))
             res[0, pat_idx, organ_idx, 0] = dice(gs, pred)
             res[0, pat_idx, organ_idx, 1] = surface_DSC
             
