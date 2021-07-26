@@ -32,3 +32,5 @@ resampling.py
 /data/
 *.pytorch
 /ONNX/outputs/
+
+*__pycache__*
