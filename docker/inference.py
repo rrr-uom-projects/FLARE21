@@ -5,6 +5,7 @@ Frankenscript to input & output nii.gz images
 import SimpleITK as sitk
 
 from torch.utils.data import Dataset, DataLoader
+import onnxruntime as ort
 import multiprocessing as mp
 import argparse as ap
 import os
@@ -15,12 +16,20 @@ import time
 
 ## Global configuration variables
 
-out_resolution = (96,160,160)
-level = 400
-window = 50
-minval = level - window//2
-maxval = level + window//2
+out_resolution = (96,192,192)
+level_0 = 50
+window_0 = 400
+minval_0 = level_0 - window_0//2
+maxval_0 = level_0 + window_0//2
 
+level_1 = 60
+window_1 = 100
+minval_1 = level_1 - window_1//2
+maxval_1 = level_1 + window_1//2
+
+model_path = "./compiled_model_nano.onnx"
+
+batch_size = 8
 
 class InferenceRecord:
     """
@@ -34,27 +43,48 @@ class InferenceRecord:
         self.original_size = original_size
         self.original_spacing = original_spacing
         self.filename = filename
+        self.segmentation = None
+
+    def add_segmentation(self, seg_array):
+        self.segmentation = seg_array
 
 
 
 @numba.jit(parallel=True, cache=True)
 def WL_norm(img):
     """
-    Apply a window and level transformation to the image data
+    Apply a window and level transformation to the image data, also expands up to 2 channels 
 
     Notes:
         - Uses global variables to reduce computation in the function
         - Profiling suggests this is about as fast as it can go
         - Fastest when image is kept as int16
     """
-    wld = np.minimum(maxval, np.maximum(img, minval)) #np.clip(img, minval, maxval)
-    wld -= minval
-    wld = wld // window
+    wld = np.zeros((2,*img.shape), dtype=np.float32)
+    wld[0,...] = np.minimum(maxval_0, np.maximum(img, minval_0)).astype(np.float32) #np.clip(img, minval, maxval)
+    wld[0,...] -= minval_0
+    wld[0,...] /= window_0
+
+    wld[1,...] = np.minimum(maxval_1, np.maximum(img, minval_1)).astype(np.float32) #np.clip(img, minval, maxval)
+    wld[1,...] -= minval_1
+    wld[1,...] /= window_1
+
     return wld
 
-preprocessings = []
+# preprocessings = []
 
 def load_nifty(path):
+    """
+    Load a nifty file and apply all preprocessing steps, ready for inference.
+
+    NB: The shape needs to be reversed to work in SITK - i.e. slices last
+
+    Steps are:
+        - Downsample to network input resolution
+        - Convert to numpy array
+        - Flip CC & LR if required
+        - Window/level normalise & expand channels
+    """
     filename = pathlib.PurePath(path).name
 
     read_start = time.time()
@@ -63,10 +93,10 @@ def load_nifty(path):
 
     ## immediately downsample to expected resolution
     resamp_start = time.time()
-    reference_image = sitk.Image(out_resolution, sitk_im.GetPixelIDValue())
+    reference_image = sitk.Image(out_resolution[::-1], sitk_im.GetPixelIDValue())
     reference_image.SetOrigin(sitk_im.GetOrigin())
     reference_image.SetDirection(sitk_im.GetDirection())
-    reference_image.SetSpacing([sz*spc/nsz for nsz,sz,spc in zip(out_resolution, sitk_im.GetSize(), sitk_im.GetSpacing())])
+    reference_image.SetSpacing([sz*spc/nsz for nsz,sz,spc in zip(out_resolution[::-1], sitk_im.GetSize(), sitk_im.GetSpacing())])
     
     ## Should we do some smoothing here? 
     sitk_im_resamp = sitk.Resample(sitk_im, reference_image)
@@ -74,7 +104,6 @@ def load_nifty(path):
 
     
     im_o = sitk.GetArrayFromImage(sitk_im_resamp).astype(np.int16) ## cast back to short - some appear to be stored as float32?
-
     # check if flip required
     flipped = False
     if sitk_im.GetDirection()[-1] == -1:
@@ -90,33 +119,111 @@ def load_nifty(path):
     im_o_n = WL_norm(im_o) ## this actually takes the longest time!
     wld_end = time.time()
 
+    if flipped:
+        print(f"reading: {read_end-read_start:.4f}\t\tresampling: {resamp_end - resamp_start:.4f}\t\tflipping{flip_end - flip_start:.4f}\t\twindowing:{wld_end-wld_start:.4f}")
     return InferenceRecord(im_o_n.astype(np.float32), flipped, sitk_im.GetSize(), sitk_im.GetSpacing(), filename)
 
 
-    return InferenceRecord(im_o_n.astype(np.float32), flipped, sitk_im.GetSize(), sitk_im.GetSpacing())
+def get_onnx_session():
+    print("ONNX Available providers:", ort.get_available_providers())
+    print(ort.get_device())
+    #* ONNX inference session
+    sess_options = ort.SessionOptions()
+    sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_EXTENDED
+    sess_options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL # ! or ORT_SEQUENTIAL
+    sess_options.optimized_model_filepath = "./optimized_model.onnx"
+    sess_options.log_severity_level = -1 ## make onnx shut up
+    sess_options.enable_profiling = False
+    sess_options.inter_op_num_threads = os.cpu_count() - 1 
+    sess_options.intra_op_num_threads = os.cpu_count() - 1
+    
+    ort_session = ort.InferenceSession(model_path, sess_options=sess_options)
+    return ort_session
 
+def inference_one(session, image):
+    # image_input = np.broadcast_to(image.npy_image, (1,*image.npy_image.shape))
+    ort_inputs = {"img":image}
+    outputs = np.array(session.run(None, ort_inputs)).squeeze()
+    preds = np.argmax(outputs, axis=1).astype(np.int8)
+    # image.add_segmentation(preds)
+    print(preds.shape)
+    return preds
 
+def get_batches_from_4d(all_images, transforms, batch_size=2):
+    ## image is almost certainly not a multiple of batch size, figure out how many whole batches we have
+    whole_batches = all_images.shape[0] // batch_size
+    batch_splitpoints = [(a*batch_size, a*batch_size + batch_size) for a in  range(whole_batches)]
+
+    ## Sort out tail batch
+    if all_images.shape[0] % batch_size != 0:
+        last_batch_start_idx = whole_batches * batch_size
+        last_batch_size = all_images.shape[0] - last_batch_start_idx
+        batch_splitpoints.append((last_batch_start_idx, all_images.shape[0]))
+    
+    ## Now yield batches from the image, after applying transforms
+    for b_start, b_stop in batch_splitpoints:
+        transformed_batch = all_images[b_start:b_stop]
+        
+        yield transformed_batch
 
 def main(args):
+    start_all = time.time()
     images_2_segment = [os.path.join(args.input_dir, im) for im in os.listdir(args.input_dir)]
     print(f"Detected {len(images_2_segment)} images to segment...")
 
-    # inference_targets = [load_nifty(impath) for impath in images_2_segment]
+    # Load and transform images
     worker_pool = mp.Pool()
-    start = time.time()
-    inference_targets  = worker_pool.map(load_nifty, images_2_segment)
+    start_read = time.time()
+    targets  = worker_pool.map(load_nifty, images_2_segment[:100])
     worker_pool.close()
     worker_pool.join()
+    end_read = time.time()
+
+    print(f"Total image loading time: {end_read-start_read} = {(end_read-start_read)/len(targets)} per image")
+
+    print(targets[0].npy_image.shape)
+
+    start = time.time()
+    all_images = np.zeros((len(targets), *targets[0].npy_image.shape), dtype=np.float32)
+    all_predictions = np.zeros((len(targets), *targets[0].npy_image.shape[1:]), dtype=np.int8)
+    for i,tgt in enumerate(targets):
+        all_images[i,...] = tgt.npy_image
     end = time.time()
 
-    print(len(inference_targets))
+    print(all_predictions.shape)
+    print(end - start)
 
-    print(f"Total image loading time: {end-start} = {(end-start)/len(images_2_segment)} per image")
+    ## Load model
+
+    inference_session = get_onnx_session()
 
 
-    print(np.mean(preprocessings))
 
-    pass
+    whole_batches = all_images.shape[0] // batch_size
+    batch_splitpoints = [(a*batch_size, a*batch_size + batch_size) for a in  range(whole_batches)]
+
+    ## Sort out tail batch
+    if all_images.shape[0] % batch_size != 0:
+        last_batch_start_idx = whole_batches * batch_size
+        last_batch_size = all_images.shape[0] - last_batch_start_idx
+        batch_splitpoints.append((last_batch_start_idx, all_images.shape[0]))
+    
+    start_inf = time.time()
+    ## Now yield batches from the image, after applying transforms
+    for b_start, b_stop in batch_splitpoints:
+        all_predictions[b_start:b_stop] = inference_one(inference_session, all_images[b_start:b_stop])
+
+    end_inf = time.time()
+
+    print(f"Inference: {end_inf - start_inf} or {(end_inf - start_inf)/len(targets)}")    
+
+    end_all = time.time()
+
+    print(f"Total time: {end_all - start_all} = {(end_all-start_all)/len(targets)} per image")
+
+    exit()
+
+
 
 
 
