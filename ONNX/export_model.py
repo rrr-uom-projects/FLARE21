@@ -48,7 +48,7 @@ def softmax(x):
 
 
 def export():
-    model  = nano_segmenter(n_classes=6, in_channels=2, p_drop=0.25)
+    model  = nano_segmenter(n_classes=6, in_channels=2, p_drop=0)
 
     #* Load trained model
     model.load_best(args.weights) #* Will default to GPU if detected + defaults to best_checkpoint.pytorch in weights directory
