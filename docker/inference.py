@@ -5,9 +5,10 @@ Frankenscript to input & output nii.gz images
 import SimpleITK as sitk
 
 from torch.utils.data import Dataset, DataLoader
-
+import multiprocessing as mp
 import argparse as ap
 import os
+import pathlib
 import numpy as np
 import numba
 import time
@@ -22,11 +23,17 @@ maxval = level + window//2
 
 
 class InferenceRecord:
-    def __init__(self, image, flipped, original_size, original_spacing):
+    """
+    Class to store a record of something that is being inferenced on
+
+    Data only class, just makes carting it around a bit easier
+    """
+    def __init__(self, image, flipped, original_size, original_spacing, filename):
         self.npy_image = image
         self.flipped = flipped
         self.original_size = original_size
         self.original_spacing = original_spacing
+        self.filename = filename
 
 
 
@@ -48,6 +55,8 @@ def WL_norm(img):
 preprocessings = []
 
 def load_nifty(path):
+    filename = pathlib.PurePath(path).name
+
     read_start = time.time()
     sitk_im = sitk.ReadImage(path)
     read_end = time.time()
@@ -81,8 +90,8 @@ def load_nifty(path):
     im_o_n = WL_norm(im_o) ## this actually takes the longest time!
     wld_end = time.time()
 
-    # print(f"all_preproc:{wld_end - resamp_start}\nall_load:{wld_end - read_start}")
-    preprocessings.append(wld_end - read_start)
+    return InferenceRecord(im_o_n.astype(np.float32), flipped, sitk_im.GetSize(), sitk_im.GetSpacing(), filename)
+
 
     return InferenceRecord(im_o_n.astype(np.float32), flipped, sitk_im.GetSize(), sitk_im.GetSpacing())
 
@@ -92,7 +101,18 @@ def main(args):
     images_2_segment = [os.path.join(args.input_dir, im) for im in os.listdir(args.input_dir)]
     print(f"Detected {len(images_2_segment)} images to segment...")
 
-    inference_targets = [load_nifty(impath) for impath in images_2_segment]
+    # inference_targets = [load_nifty(impath) for impath in images_2_segment]
+    worker_pool = mp.Pool()
+    start = time.time()
+    inference_targets  = worker_pool.map(load_nifty, images_2_segment)
+    worker_pool.close()
+    worker_pool.join()
+    end = time.time()
+
+    print(len(inference_targets))
+
+    print(f"Total image loading time: {end-start} = {(end-start)/len(images_2_segment)} per image")
+
 
     print(np.mean(preprocessings))
 
