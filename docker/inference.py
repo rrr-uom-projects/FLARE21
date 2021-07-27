@@ -120,9 +120,16 @@ def load_nifty(path):
     im_o_n = WL_norm(im_o) ## this actually takes the longest time!
     wld_end = time.time()
 
-    if flipped:
-        print(f"reading: {read_end-read_start:.4f}\t\tresampling: {resamp_end - resamp_start:.4f}\t\tflipping{flip_end - flip_start:.4f}\t\twindowing:{wld_end-wld_start:.4f}")
-    return InferenceRecord(im_o_n.astype(np.float32), flipped, sitk_im.GetSize(), sitk_im.GetSpacing(), filename)
+    ## Uncomment this to get some timing data
+    # if flipped:
+    #     print(f"reading: {read_end-read_start:.4f}\t\tresampling: {resamp_end - resamp_start:.4f}\t\tflipping{flip_end - flip_start:.4f}\t\twindowing:{wld_end-wld_start:.4f}")
+    return InferenceRecord(im_o_n.astype(np.float32), 
+                            flipped,
+                            sitk_im.GetOrigin(),
+                            sitk_im.GetDirection(),
+                            sitk_im.GetSize(),
+                            sitk_im.GetSpacing(),
+                            filename)
 
 
 def get_onnx_session():
