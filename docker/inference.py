@@ -29,7 +29,7 @@ maxval_1 = level_1 + window_1//2
 
 model_path = "./compiled_model_nano.onnx"
 
-batch_size = 8
+batch_size = 1
 
 class InferenceRecord:
     """
@@ -162,9 +162,13 @@ def inference_one(session, image):
                     image.filename)
 
 
+def inference_batch(session, batch):
+    ort_inputs = {"img":batch}
+    outputs = np.array(session.run(None, ort_inputs)).squeeze()
+    if batch.shape[0] > 1:
     preds = np.argmax(outputs, axis=1).astype(np.int8)
-    # image.add_segmentation(preds)
-    print(preds.shape)
+    else:
+        preds = np.argmax(outputs, axis=0).astype(np.int8)
     return preds
 
 def get_batches_from_4d(all_images, transforms, batch_size=2):
@@ -201,6 +205,14 @@ def main(args):
 
     print(targets[0].npy_image.shape)
 
+
+
+    ## Load model
+
+    inference_session = get_onnx_session()
+
+
+    if args.do_batches:
     start = time.time()
     all_images = np.zeros((len(targets), *targets[0].npy_image.shape), dtype=np.float32)
     all_predictions = np.zeros((len(targets), *targets[0].npy_image.shape[1:]), dtype=np.int8)
@@ -210,13 +222,6 @@ def main(args):
 
     print(all_predictions.shape)
     print(end - start)
-
-    ## Load model
-
-    inference_session = get_onnx_session()
-
-
-
     whole_batches = all_images.shape[0] // batch_size
     batch_splitpoints = [(a*batch_size, a*batch_size + batch_size) for a in  range(whole_batches)]
 
@@ -232,8 +237,14 @@ def main(args):
         all_predictions[b_start:b_stop] = inference_one(inference_session, all_images[b_start:b_stop])
 
     end_inf = time.time()
-
+    else:
+        start_inf = time.time()
+        results = []
+        for tgt in targets:
+            results.append((inference_one(inference_session, tgt), args.output_dir))
+        end_inf = time.time()
     print(f"Inference: {end_inf - start_inf} or {(end_inf - start_inf)/len(targets)}")    
+
 
     end_all = time.time()
 
