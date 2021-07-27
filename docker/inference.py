@@ -171,16 +171,40 @@ def inference_batch(session, batch):
         preds = np.argmax(outputs, axis=0).astype(np.int8)
     return preds
 
-def get_batches_from_4d(all_images, transforms, batch_size=2):
-    ## image is almost certainly not a multiple of batch size, figure out how many whole batches we have
-    whole_batches = all_images.shape[0] // batch_size
-    batch_splitpoints = [(a*batch_size, a*batch_size + batch_size) for a in  range(whole_batches)]
+def write_one(record, out_dir):
+    """
+    Resample, unflip and write to output directory
+    """
+    output_image = clip_body(record.npy_image)
+    ## first unflip if needed
+    if record.flipped:
+        output_image = np.flip(output_image, axis=0)        # flip CC
+        output_image = np.flip(output_image, axis=2)        # flip LR --> this works, should be made more robust though (with sitk cosine matrix)
+    
+    ## create output image
+    sitk_im = sitk.GetImageFromArray(output_image.astype(np.int8))
+    sitk_im.SetOrigin(record.origin)
+    sitk_im.SetDirection(record.direction)
+    sitk_im.SetSpacing(record.spacing)
 
-    ## Sort out tail batch
-    if all_images.shape[0] % batch_size != 0:
-        last_batch_start_idx = whole_batches * batch_size
-        last_batch_size = all_images.shape[0] - last_batch_start_idx
-        batch_splitpoints.append((last_batch_start_idx, all_images.shape[0]))
+    ## Now resample, make sure to use nearest neighbour
+    resamp_start = time.time()
+    resampler = sitk.ResampleImageFilter()
+    resampler.SetInterpolator(sitk.sitkNearestNeighbor)
+    resampler.SetOutputOrigin(record.origin)
+    resampler.SetOutputDirection(record.direction)
+    resampler.SetOutputSpacing(record.original_spacing)
+    resampler.SetSize(record.original_size)
+
+    
+    ## Should we do some smoothing here? 
+    sitk_im_resamp = resampler.Execute(sitk_im)
+    resamp_end = time.time()
+
+    write_start = time.time()
+    ## Now we can write
+    sitk.WriteImage(sitk_im_resamp, os.path.join(out_dir, record.filename))
+    write_end = time.time()
     
     ## Now yield batches from the image, after applying transforms
     for b_start, b_stop in batch_splitpoints:
