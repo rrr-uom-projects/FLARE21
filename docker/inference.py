@@ -4,7 +4,6 @@ Frankenscript to input & output nii.gz images
 
 import SimpleITK as sitk
 
-from torch.utils.data import Dataset, DataLoader
 import onnxruntime as ort
 import multiprocessing as mp
 import argparse as ap
