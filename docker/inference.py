@@ -149,9 +149,19 @@ def get_onnx_session():
     return ort_session
 
 def inference_one(session, image):
-    # image_input = np.broadcast_to(image.npy_image, (1,*image.npy_image.shape))
-    ort_inputs = {"img":image}
+    image_input = np.broadcast_to(image.npy_image, (1,*image.npy_image.shape))
+    ort_inputs = {"img":image_input}
     outputs = np.array(session.run(None, ort_inputs)).squeeze()
+    preds = np.argmax(outputs, axis=0).astype(np.int8)
+    return InferenceRecord(preds, 
+                    image.flipped, 
+                    image.origin, 
+                    image.direction, 
+                    image.original_size, 
+                    image.original_spacing, 
+                    image.filename)
+
+
     preds = np.argmax(outputs, axis=1).astype(np.int8)
     # image.add_segmentation(preds)
     print(preds.shape)
