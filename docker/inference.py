@@ -171,6 +171,15 @@ def inference_batch(session, batch):
         preds = np.argmax(outputs, axis=0).astype(np.int8)
     return preds
 
+@numba.jit(parallel=True, cache=True)
+def clip_body(seg):
+    """
+    Remove body segmentation from the final segmentation object
+
+    This should be accelerated by numba and end up faster than np.clip (I think)
+    """
+    return np.minimum(4, np.maximum(seg-1, 0))
+
 
 def mp_write_wrapper(args):
     record, out_dir = args
