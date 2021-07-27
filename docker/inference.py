@@ -246,7 +246,7 @@ def main(args):
     # Load and transform images
     worker_pool = mp.Pool()
     start_read = time.time()
-    targets  = worker_pool.map(load_nifty, images_2_segment[:100])
+    targets  = worker_pool.map(load_nifty, images_2_segment)
     worker_pool.close()
     worker_pool.join()
     end_read = time.time()
