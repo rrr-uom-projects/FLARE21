@@ -171,6 +171,11 @@ def inference_batch(session, batch):
         preds = np.argmax(outputs, axis=0).astype(np.int8)
     return preds
 
+
+def mp_write_wrapper(args):
+    record, out_dir = args
+    write_one(record, out_dir)
+
 def write_one(record, out_dir):
     """
     Resample, unflip and write to output directory
@@ -206,11 +211,7 @@ def write_one(record, out_dir):
     sitk.WriteImage(sitk_im_resamp, os.path.join(out_dir, record.filename))
     write_end = time.time()
     
-    ## Now yield batches from the image, after applying transforms
-    for b_start, b_stop in batch_splitpoints:
-        transformed_batch = all_images[b_start:b_stop]
         
-        yield transformed_batch
 
 def main(args):
     start_all = time.time()
@@ -269,8 +270,16 @@ def main(args):
         end_inf = time.time()
     print(f"Inference: {end_inf - start_inf} or {(end_inf - start_inf)/len(targets)}")    
 
+    ## Now figure out how to write all that...
+
+    start_write = time.time()
+    writer_pool = mp.Pool()
+    writer_pool.map(mp_write_wrapper, results)
+    writer_pool.close()
+    writer_pool.join()
 
     end_all = time.time()
+    print(f"Writing time: {end_all - start_write} = {(end_all-start_write)/len(targets)}")
 
     print(f"Total time: {end_all - start_all} = {(end_all-start_all)/len(targets)} per image")
 
