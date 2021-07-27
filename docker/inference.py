@@ -28,8 +28,6 @@ maxval_1 = level_1 + window_1//2
 
 model_path = "./compiled_model_nano.onnx"
 
-batch_size = 1
-
 class InferenceRecord:
     """
     Class to store a record of something that is being inferenced on
@@ -174,21 +172,6 @@ def inference_one(session, image):
                     image.original_spacing, 
                     image.filename)
 
-
-def inference_batch(session, batch):
-    """
-    Inference function for use when running in batches.
-
-    This is effectively defunct since we don't do this 
-    """
-    ort_inputs = {"img":batch}
-    outputs = np.array(session.run(None, ort_inputs)).squeeze()
-    if batch.shape[0] > 1:
-        preds = np.argmax(outputs, axis=1).astype(np.int8)
-    else:
-        preds = np.argmax(outputs, axis=0).astype(np.int8)
-    return preds
-
 @numba.jit(parallel=True, cache=True)
 def clip_body(seg):
     """
@@ -268,49 +251,19 @@ def main(args):
     worker_pool.join()
     end_read = time.time()
 
-    print(f"Total image loading time: {end_read-start_read} = {(end_read-start_read)/len(targets)} per image")
-
-    print(targets[0].npy_image.shape)
-
-
+    print(f"Total image loading time: {end_read-start_read} = {(end_read-start_read)/len(targets)} s/image")
 
     ## Load model
 
     inference_session = get_onnx_session()
 
-
-    if args.do_batches:
-        start = time.time()
-        all_images = np.zeros((len(targets), *targets[0].npy_image.shape), dtype=np.float32)
-        all_predictions = np.zeros((len(targets), *targets[0].npy_image.shape[1:]), dtype=np.int8)
-        for i,tgt in enumerate(targets):
-            all_images[i,...] = tgt.npy_image
-        end = time.time()
-
-        print(all_predictions.shape)
-        print(end - start)
-        whole_batches = all_images.shape[0] // batch_size
-        batch_splitpoints = [(a*batch_size, a*batch_size + batch_size) for a in  range(whole_batches)]
-
-        ## Sort out tail batch
-        if all_images.shape[0] % batch_size != 0:
-            last_batch_start_idx = whole_batches * batch_size
-            last_batch_size = all_images.shape[0] - last_batch_start_idx
-            batch_splitpoints.append((last_batch_start_idx, all_images.shape[0]))
-        
-        start_inf = time.time()
-        ## Now yield batches from the image, after applying transforms
-        for b_start, b_stop in batch_splitpoints:
-            all_predictions[b_start:b_stop] = inference_one(inference_session, all_images[b_start:b_stop])
-
-        end_inf = time.time()
-    else:
-        start_inf = time.time()
-        results = []
-        for tgt in targets:
-            results.append((inference_one(inference_session, tgt), args.output_dir))
-        end_inf = time.time()
-    print(f"Inference: {end_inf - start_inf} or {(end_inf - start_inf)/len(targets)}")
+    ## run inference
+    start_inf = time.time()
+    results = []
+    for tgt in targets:
+        results.append((inference_one(inference_session, tgt), args.output_dir))
+    end_inf = time.time()
+    print(f"Inference time: {end_inf - start_inf} or {(end_inf - start_inf)/len(targets)} s/image")
 
     ## Now figure out how to write all that...
 
@@ -321,9 +274,9 @@ def main(args):
     writer_pool.join()
 
     end_all = time.time()
-    print(f"Writing time: {end_all - start_write} = {(end_all-start_write)/len(targets)}")
+    print(f"Writing time: {end_all - start_write} = {(end_all-start_write)/len(targets)} s/image")
 
-    print(f"Total time: {end_all - start_all} = {(end_all-start_all)/len(targets)} per image")
+    print(f"Total time: {end_all - start_all} = {(end_all-start_all)/len(targets)} s/image")
 
     exit()
 
@@ -341,8 +294,6 @@ if __name__ == "__main__":
     parser = ap.ArgumentParser()
     parser.add_argument("input_dir", help="Directory containing images to segment")
     parser.add_argument("output_dir", help="Directory in which to put the output")
-
-    parser.add_argument("--do_batches", action='store_true', default=False, help="Run inference in batches")
 
     args = parser.parse_args()
     main(args)
