@@ -34,3 +34,4 @@ resampling.py
 /ONNX/outputs/
 
 *__pycache__*
+*.nii.gz
