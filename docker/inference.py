@@ -166,7 +166,7 @@ def inference_batch(session, batch):
     ort_inputs = {"img":batch}
     outputs = np.array(session.run(None, ort_inputs)).squeeze()
     if batch.shape[0] > 1:
-    preds = np.argmax(outputs, axis=1).astype(np.int8)
+        preds = np.argmax(outputs, axis=1).astype(np.int8)
     else:
         preds = np.argmax(outputs, axis=0).astype(np.int8)
     return preds
@@ -219,8 +219,8 @@ def write_one(record, out_dir):
     ## Now we can write
     sitk.WriteImage(sitk_im_resamp, os.path.join(out_dir, record.filename))
     write_end = time.time()
+
     
-        
 
 def main(args):
     start_all = time.time()
@@ -247,37 +247,37 @@ def main(args):
 
 
     if args.do_batches:
-    start = time.time()
-    all_images = np.zeros((len(targets), *targets[0].npy_image.shape), dtype=np.float32)
-    all_predictions = np.zeros((len(targets), *targets[0].npy_image.shape[1:]), dtype=np.int8)
-    for i,tgt in enumerate(targets):
-        all_images[i,...] = tgt.npy_image
-    end = time.time()
+        start = time.time()
+        all_images = np.zeros((len(targets), *targets[0].npy_image.shape), dtype=np.float32)
+        all_predictions = np.zeros((len(targets), *targets[0].npy_image.shape[1:]), dtype=np.int8)
+        for i,tgt in enumerate(targets):
+            all_images[i,...] = tgt.npy_image
+        end = time.time()
 
-    print(all_predictions.shape)
-    print(end - start)
-    whole_batches = all_images.shape[0] // batch_size
-    batch_splitpoints = [(a*batch_size, a*batch_size + batch_size) for a in  range(whole_batches)]
+        print(all_predictions.shape)
+        print(end - start)
+        whole_batches = all_images.shape[0] // batch_size
+        batch_splitpoints = [(a*batch_size, a*batch_size + batch_size) for a in  range(whole_batches)]
 
-    ## Sort out tail batch
-    if all_images.shape[0] % batch_size != 0:
-        last_batch_start_idx = whole_batches * batch_size
-        last_batch_size = all_images.shape[0] - last_batch_start_idx
-        batch_splitpoints.append((last_batch_start_idx, all_images.shape[0]))
-    
-    start_inf = time.time()
-    ## Now yield batches from the image, after applying transforms
-    for b_start, b_stop in batch_splitpoints:
-        all_predictions[b_start:b_stop] = inference_one(inference_session, all_images[b_start:b_stop])
+        ## Sort out tail batch
+        if all_images.shape[0] % batch_size != 0:
+            last_batch_start_idx = whole_batches * batch_size
+            last_batch_size = all_images.shape[0] - last_batch_start_idx
+            batch_splitpoints.append((last_batch_start_idx, all_images.shape[0]))
+        
+        start_inf = time.time()
+        ## Now yield batches from the image, after applying transforms
+        for b_start, b_stop in batch_splitpoints:
+            all_predictions[b_start:b_stop] = inference_one(inference_session, all_images[b_start:b_stop])
 
-    end_inf = time.time()
+        end_inf = time.time()
     else:
         start_inf = time.time()
         results = []
         for tgt in targets:
             results.append((inference_one(inference_session, tgt), args.output_dir))
         end_inf = time.time()
-    print(f"Inference: {end_inf - start_inf} or {(end_inf - start_inf)/len(targets)}")    
+    print(f"Inference: {end_inf - start_inf} or {(end_inf - start_inf)/len(targets)}")
 
     ## Now figure out how to write all that...
 
