@@ -37,16 +37,17 @@ class InferenceRecord:
 
     Data only class, just makes carting it around a bit easier
     """
-    def __init__(self, image, flipped, original_size, original_spacing, filename):
+    def __init__(self, image, flipped, origin, direction, original_size, original_spacing, filename):
         self.npy_image = image
         self.flipped = flipped
+        self.origin = origin
+        self.direction = direction
         self.original_size = original_size
         self.original_spacing = original_spacing
         self.filename = filename
-        self.segmentation = None
 
-    def add_segmentation(self, seg_array):
-        self.segmentation = seg_array
+        self.spacing = [sz*spc/nsz for nsz,sz,spc in zip(out_resolution[::-1], self.original_size, self.original_spacing)]
+
 
 
 
