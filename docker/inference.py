@@ -297,5 +297,7 @@ if __name__ == "__main__":
     parser.add_argument("input_dir", help="Directory containing images to segment")
     parser.add_argument("output_dir", help="Directory in which to put the output")
 
+    parser.add_argument("--do_batches", action='store_true', default=False, help="Run inference in batches")
+
     args = parser.parse_args()
     main(args)
