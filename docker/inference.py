@@ -71,8 +71,6 @@ def WL_norm(img):
 
     return wld
 
-# preprocessings = []
-
 def load_nifty(path):
     """
     Load a nifty file and apply all preprocessing steps, ready for inference.
@@ -132,6 +130,14 @@ def load_nifty(path):
 
 
 def get_onnx_session():
+    """
+    Load the ONNX model and return an onnxruntime with the correct
+    session options set
+
+    Directly taken from Donal's onnx inference.py script
+
+    1 change - I made ONNX shut up
+    """
     print("ONNX Available providers:", ort.get_available_providers())
     print(ort.get_device())
     #* ONNX inference session
@@ -148,6 +154,14 @@ def get_onnx_session():
     return ort_session
 
 def inference_one(session, image):
+    """
+    Use an ONNX session to run inference on a single image.
+
+    The image comes in as a record, containing the image and all header data.
+
+    We return a new record, where the 'image' is the segmentation and the header data 
+    is copied; this allows easier writing of the nifty.
+    """
     image_input = np.broadcast_to(image.npy_image, (1,*image.npy_image.shape))
     ort_inputs = {"img":image_input}
     outputs = np.array(session.run(None, ort_inputs)).squeeze()
@@ -162,6 +176,11 @@ def inference_one(session, image):
 
 
 def inference_batch(session, batch):
+    """
+    Inference function for use when running in batches.
+
+    This is effectively defunct since we don't do this 
+    """
     ort_inputs = {"img":batch}
     outputs = np.array(session.run(None, ort_inputs)).squeeze()
     if batch.shape[0] > 1:
@@ -181,6 +200,12 @@ def clip_body(seg):
 
 
 def mp_write_wrapper(args):
+    """
+    Wrapper function for multiprocessing writer.
+
+    mp.Pool.map can't handle functions with multiple arguments, this is one way around that
+    while not compromising the readability of the underlying function.
+    """
     record, out_dir = args
     write_one(record, out_dir)
 
@@ -222,6 +247,15 @@ def write_one(record, out_dir):
     
 
 def main(args):
+    """
+    Run the full segmentation workflow:
+        - List images in the input directory
+        - Load those images into memory (in parallel)
+            - Resample, flip and normalise the images as they are loaded
+        - Run one-by-one inference (sequential, but onnx uses all cores)
+        - Write segmentation masks to the output directory (in parallel)
+            - unflip, resample on the way
+    """
     start_all = time.time()
     images_2_segment = [os.path.join(args.input_dir, im) for im in os.listdir(args.input_dir)]
     print(f"Detected {len(images_2_segment)} images to segment...")
@@ -301,6 +335,9 @@ def main(args):
 
 
 if __name__ == "__main__":
+    """
+    Handle argparse here
+    """
     parser = ap.ArgumentParser()
     parser.add_argument("input_dir", help="Directory containing images to segment")
     parser.add_argument("output_dir", help="Directory in which to put the output")
