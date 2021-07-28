@@ -94,8 +94,16 @@ def load_nifty(path):
     reference_image.SetDirection(sitk_im.GetDirection())
     reference_image.SetSpacing([sz*spc/nsz for nsz,sz,spc in zip(out_resolution[::-1], sitk_im.GetSize(), sitk_im.GetSpacing())])
     
-    ## Should we do some smoothing here? 
-    sitk_im_resamp = sitk.Resample(sitk_im, reference_image, interpolator=sitk.sitkBSpline )
+    ## calculate smoothing sigma to match scikit-image:
+    ## Standard deviation for Gaussian filtering to avoid aliasing artifacts. 
+    ## By default, this value is chosen as (s - 1) / 2 where s is the down-scaling factor, where s > 1. 
+    ## For the up-size case, s < 1, no anti-aliasing is performed prior to rescaling.
+
+    factors = [old/new for old, new in zip(sitk_im.GetSize(), out_resolution[::-1] )]
+    
+    smoothing_sigma = np.clip([(f-1)/2 for f in factors], 0.00001, 100) ## assume f > 1 !
+    
+    sitk_im_resamp = sitk.Resample(sitk.SmoothingRecursiveGaussian(sitk_im, smoothing_sigma), reference_image, interpolator=sitk.sitkBSpline )
     resamp_end = time.time()
 
     
