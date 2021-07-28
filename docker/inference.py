@@ -4,7 +4,6 @@ Frankenscript to input & output nii.gz images
 
 import SimpleITK as sitk
 
-from torch.utils.data import Dataset, DataLoader
 import onnxruntime as ort
 import multiprocessing as mp
 import argparse as ap
@@ -27,9 +26,7 @@ window_1 = 100
 minval_1 = level_1 - window_1//2
 maxval_1 = level_1 + window_1//2
 
-model_path = "./compiled_model_nano.onnx"
-
-batch_size = 8
+model_path = "./rrr-models/compiled_model_nano.onnx"
 
 class InferenceRecord:
     """
@@ -37,16 +34,17 @@ class InferenceRecord:
 
     Data only class, just makes carting it around a bit easier
     """
-    def __init__(self, image, flipped, original_size, original_spacing, filename):
+    def __init__(self, image, flipped, origin, direction, original_size, original_spacing, filename):
         self.npy_image = image
         self.flipped = flipped
+        self.origin = origin
+        self.direction = direction
         self.original_size = original_size
         self.original_spacing = original_spacing
         self.filename = filename
-        self.segmentation = None
 
-    def add_segmentation(self, seg_array):
-        self.segmentation = seg_array
+        self.spacing = [sz*spc/nsz for nsz,sz,spc in zip(out_resolution[::-1], self.original_size, self.original_spacing)]
+
 
 
 
@@ -70,8 +68,6 @@ def WL_norm(img):
     wld[1,...] /= window_1
 
     return wld
-
-# preprocessings = []
 
 def load_nifty(path):
     """
@@ -99,7 +95,7 @@ def load_nifty(path):
     reference_image.SetSpacing([sz*spc/nsz for nsz,sz,spc in zip(out_resolution[::-1], sitk_im.GetSize(), sitk_im.GetSpacing())])
     
     ## Should we do some smoothing here? 
-    sitk_im_resamp = sitk.Resample(sitk_im, reference_image)
+    sitk_im_resamp = sitk.Resample(sitk_im, reference_image, interpolator=sitk.sitkBSpline )
     resamp_end = time.time()
 
     
@@ -119,12 +115,27 @@ def load_nifty(path):
     im_o_n = WL_norm(im_o) ## this actually takes the longest time!
     wld_end = time.time()
 
-    if flipped:
-        print(f"reading: {read_end-read_start:.4f}\t\tresampling: {resamp_end - resamp_start:.4f}\t\tflipping{flip_end - flip_start:.4f}\t\twindowing:{wld_end-wld_start:.4f}")
-    return InferenceRecord(im_o_n.astype(np.float32), flipped, sitk_im.GetSize(), sitk_im.GetSpacing(), filename)
+    ## Uncomment this to get some timing data
+    # if flipped:
+    #     print(f"reading: {read_end-read_start:.4f}\t\tresampling: {resamp_end - resamp_start:.4f}\t\tflipping{flip_end - flip_start:.4f}\t\twindowing:{wld_end-wld_start:.4f}")
+    return InferenceRecord(im_o_n.astype(np.float32), 
+                            flipped,
+                            sitk_im.GetOrigin(),
+                            sitk_im.GetDirection(),
+                            sitk_im.GetSize(),
+                            sitk_im.GetSpacing(),
+                            filename)
 
 
 def get_onnx_session():
+    """
+    Load the ONNX model and return an onnxruntime with the correct
+    session options set
+
+    Directly taken from Donal's onnx inference.py script
+
+    1 change - I made ONNX shut up
+    """
     print("ONNX Available providers:", ort.get_available_providers())
     print(ort.get_device())
     #* ONNX inference session
@@ -141,32 +152,93 @@ def get_onnx_session():
     return ort_session
 
 def inference_one(session, image):
-    # image_input = np.broadcast_to(image.npy_image, (1,*image.npy_image.shape))
-    ort_inputs = {"img":image}
+    """
+    Use an ONNX session to run inference on a single image.
+
+    The image comes in as a record, containing the image and all header data.
+
+    We return a new record, where the 'image' is the segmentation and the header data 
+    is copied; this allows easier writing of the nifty.
+    """
+    image_input = np.broadcast_to(image.npy_image, (1,*image.npy_image.shape))
+    ort_inputs = {"img":image_input}
     outputs = np.array(session.run(None, ort_inputs)).squeeze()
-    preds = np.argmax(outputs, axis=1).astype(np.int8)
-    # image.add_segmentation(preds)
-    print(preds.shape)
-    return preds
+    preds = np.argmax(outputs, axis=0).astype(np.int8)
+    return InferenceRecord(preds, 
+                    image.flipped, 
+                    image.origin, 
+                    image.direction, 
+                    image.original_size, 
+                    image.original_spacing, 
+                    image.filename)
 
-def get_batches_from_4d(all_images, transforms, batch_size=2):
-    ## image is almost certainly not a multiple of batch size, figure out how many whole batches we have
-    whole_batches = all_images.shape[0] // batch_size
-    batch_splitpoints = [(a*batch_size, a*batch_size + batch_size) for a in  range(whole_batches)]
+@numba.jit(parallel=True, cache=True)
+def clip_body(seg):
+    """
+    Remove body segmentation from the final segmentation object
 
-    ## Sort out tail batch
-    if all_images.shape[0] % batch_size != 0:
-        last_batch_start_idx = whole_batches * batch_size
-        last_batch_size = all_images.shape[0] - last_batch_start_idx
-        batch_splitpoints.append((last_batch_start_idx, all_images.shape[0]))
+    This should be accelerated by numba and end up faster than np.clip (I think)
+    """
+    return np.minimum(4, np.maximum(seg-1, 0))
+
+
+def mp_write_wrapper(args):
+    """
+    Wrapper function for multiprocessing writer.
+
+    mp.Pool.map can't handle functions with multiple arguments, this is one way around that
+    while not compromising the readability of the underlying function.
+    """
+    record, out_dir = args
+    write_one(record, out_dir)
+
+def write_one(record, out_dir):
+    """
+    Resample, unflip and write to output directory
+    """
+    output_image = clip_body(record.npy_image)
+    ## first unflip if needed
+    if record.flipped:
+        output_image = np.flip(output_image, axis=0)        # flip CC
+        output_image = np.flip(output_image, axis=2)        # flip LR --> this works, should be made more robust though (with sitk cosine matrix)
     
-    ## Now yield batches from the image, after applying transforms
-    for b_start, b_stop in batch_splitpoints:
-        transformed_batch = all_images[b_start:b_stop]
-        
-        yield transformed_batch
+    ## create output image
+    sitk_im = sitk.GetImageFromArray(output_image.astype(np.int8))
+    sitk_im.SetOrigin(record.origin)
+    sitk_im.SetDirection(record.direction)
+    sitk_im.SetSpacing(record.spacing)
+
+    ## Now resample, make sure to use nearest neighbour
+    resamp_start = time.time()
+    resampler = sitk.ResampleImageFilter()
+    resampler.SetInterpolator(sitk.sitkNearestNeighbor)
+    resampler.SetOutputOrigin(record.origin)
+    resampler.SetOutputDirection(record.direction)
+    resampler.SetOutputSpacing(record.original_spacing)
+    resampler.SetSize(record.original_size)
+
+    
+    ## Should we do some smoothing here? 
+    sitk_im_resamp = resampler.Execute(sitk_im)
+    resamp_end = time.time()
+
+    write_start = time.time()
+    ## Now we can write
+    sitk.WriteImage(sitk_im_resamp, os.path.join(out_dir, record.filename))
+    write_end = time.time()
+
+    
 
 def main(args):
+    """
+    Run the full segmentation workflow:
+        - List images in the input directory
+        - Load those images into memory (in parallel)
+            - Resample, flip and normalise the images as they are loaded
+        - Run one-by-one inference (sequential, but onnx uses all cores)
+        - Write segmentation masks to the output directory (in parallel)
+            - unflip, resample on the way
+    """
     start_all = time.time()
     images_2_segment = [os.path.join(args.input_dir, im) for im in os.listdir(args.input_dir)]
     print(f"Detected {len(images_2_segment)} images to segment...")
@@ -174,52 +246,37 @@ def main(args):
     # Load and transform images
     worker_pool = mp.Pool()
     start_read = time.time()
-    targets  = worker_pool.map(load_nifty, images_2_segment[:100])
+    targets  = worker_pool.map(load_nifty, images_2_segment)
     worker_pool.close()
     worker_pool.join()
     end_read = time.time()
 
-    print(f"Total image loading time: {end_read-start_read} = {(end_read-start_read)/len(targets)} per image")
-
-    print(targets[0].npy_image.shape)
-
-    start = time.time()
-    all_images = np.zeros((len(targets), *targets[0].npy_image.shape), dtype=np.float32)
-    all_predictions = np.zeros((len(targets), *targets[0].npy_image.shape[1:]), dtype=np.int8)
-    for i,tgt in enumerate(targets):
-        all_images[i,...] = tgt.npy_image
-    end = time.time()
-
-    print(all_predictions.shape)
-    print(end - start)
+    print(f"Total image loading time: {end_read-start_read} = {(end_read-start_read)/len(targets)} s/image")
 
     ## Load model
 
     inference_session = get_onnx_session()
 
-
-
-    whole_batches = all_images.shape[0] // batch_size
-    batch_splitpoints = [(a*batch_size, a*batch_size + batch_size) for a in  range(whole_batches)]
-
-    ## Sort out tail batch
-    if all_images.shape[0] % batch_size != 0:
-        last_batch_start_idx = whole_batches * batch_size
-        last_batch_size = all_images.shape[0] - last_batch_start_idx
-        batch_splitpoints.append((last_batch_start_idx, all_images.shape[0]))
-    
+    ## run inference
     start_inf = time.time()
-    ## Now yield batches from the image, after applying transforms
-    for b_start, b_stop in batch_splitpoints:
-        all_predictions[b_start:b_stop] = inference_one(inference_session, all_images[b_start:b_stop])
-
+    results = []
+    for tgt in targets:
+        results.append((inference_one(inference_session, tgt), args.output_dir))
     end_inf = time.time()
+    print(f"Inference time: {end_inf - start_inf} or {(end_inf - start_inf)/len(targets)} s/image")
 
-    print(f"Inference: {end_inf - start_inf} or {(end_inf - start_inf)/len(targets)}")    
+    ## Now figure out how to write all that...
+
+    start_write = time.time()
+    writer_pool = mp.Pool()
+    writer_pool.map(mp_write_wrapper, results)
+    writer_pool.close()
+    writer_pool.join()
 
     end_all = time.time()
+    print(f"Writing time: {end_all - start_write} = {(end_all-start_write)/len(targets)} s/image")
 
-    print(f"Total time: {end_all - start_all} = {(end_all-start_all)/len(targets)} per image")
+    print(f"Total time: {end_all - start_all} = {(end_all-start_all)/len(targets)} s/image")
 
     exit()
 
@@ -231,6 +288,9 @@ def main(args):
 
 
 if __name__ == "__main__":
+    """
+    Handle argparse here
+    """
     parser = ap.ArgumentParser()
     parser.add_argument("input_dir", help="Directory containing images to segment")
     parser.add_argument("output_dir", help="Directory in which to put the output")
