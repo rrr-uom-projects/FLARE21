@@ -95,7 +95,7 @@ def load_nifty(path):
     reference_image.SetSpacing([sz*spc/nsz for nsz,sz,spc in zip(out_resolution[::-1], sitk_im.GetSize(), sitk_im.GetSpacing())])
     
     ## Should we do some smoothing here? 
-    sitk_im_resamp = sitk.Resample(sitk_im, reference_image)
+    sitk_im_resamp = sitk.Resample(sitk_im, reference_image, interpolator=sitk.sitkBSpline )
     resamp_end = time.time()
 
     
