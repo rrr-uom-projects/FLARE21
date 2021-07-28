@@ -26,7 +26,7 @@ window_1 = 100
 minval_1 = level_1 - window_1//2
 maxval_1 = level_1 + window_1//2
 
-model_path = "./compiled_model_nano.onnx"
+model_path = "./rrr-models/compiled_model_nano.onnx"
 
 class InferenceRecord:
     """
