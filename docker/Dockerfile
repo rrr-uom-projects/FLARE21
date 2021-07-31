@@ -3,13 +3,13 @@ from ubuntu:20.04
 run apt update && apt upgrade -y
 run apt install -y python3 python3-pip
 
-run pip install onnx onnxruntime nvidia-ml-py3
-run pip install numba  SimpleITK
+run pip install --no-cache-dir onnx onnxruntime 
+run pip install --no-cache-dir numba  SimpleITK==2.0.2
 
 run mkdir /rrr-models
 
-copy ./docker/inference.py /rrr-models
-copy ./docker/compiled_model_nano.onnx /rrr-models
+copy ./inference.py /rrr-models
+copy ./compiled_model_nano.onnx /rrr-models
 
-copy ./docker/predict.sh .
+copy ./predict.sh .
 
