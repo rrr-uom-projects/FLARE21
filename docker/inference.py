@@ -232,7 +232,9 @@ def write_one(record, out_dir):
 
     write_start = time.time()
     ## Now we can write
-    sitk.WriteImage(sitk_im_resamp, os.path.join(out_dir, record.filename))
+    # remove _0000 from filenames
+    out_fname = record.filename.replace("_0000", "")
+    sitk.WriteImage(sitk_im_resamp, os.path.join(out_dir, out_fname))
     write_end = time.time()
 
     
