@@ -333,7 +333,7 @@ class segmenter_trainer:
                     sdx = 5
                     coords = self.find_coords(mask, sdx)
                     fig4, (ax9, ax10, ax11) = plt.subplots(1, 3, figsize=(15, 5), tight_layout=True)
-                    ax_slice = ct_im[which_to_show, 1, coords[0]].cpu().numpy().astype(float)             # <-- batch_num, contrast_channel, ax_slice
+                    ax_slice = ct_im[which_to_show, 0, coords[0]].cpu().numpy().astype(float)             # <-- batch_num, contrast_channel, ax_slice
                     ax9.imshow(np.rot90(ax_slice, 2), aspect=1.0, cmap='Greys_r')
                     ax_slice = mask[coords[0]].astype(float)
                     ax10.imshow(np.rot90(ax_slice, 2), aspect=1.0, cmap='nipy_spectral', vmin=0, vmax=6)
