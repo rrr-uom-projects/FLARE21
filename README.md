@@ -8,5 +8,5 @@ ARGS:<br>
 <li> OUTPUT_NAME: compiled model will be named: <code>OUTPUT_NAME.onnx</code>.<br>
 <li> check_model: checks model was compiled correctly. <br>
 <li> check_output: validates compiled model outputs against original pytorch model. <br>
-<strong>NOTE</strong>: If you get the following error `AssertionError: Not equal to tolerance rtol=0.001, atol=1e-05`. Re-running the command should fix the issue.
+<strong>NOTE</strong>: If you get the following error <code>AssertionError: Not equal to tolerance rtol=0.001, atol=1e-05</code>. Re-running the command should fix the issue.
 <br>
