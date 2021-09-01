@@ -1,8 +1,17 @@
-<h1> FLARE21 </h1>
+<h1> RRR_MCR FLARE21 submission: Cpu-Only aBdominal oRgan segmentAtion (COBRA)</h1>
 <h2> Training data preprocessing </h2>
-todo
+Before training our model, the training data needs to be pre-processing. For this use <strong>train_preprocessing.py</strong> in the parent directory.<br>
+This script will:<br>
+<li> convert images and gold standard segmentations from .nii.gz to .npy format <br>
+<li> correct orientation errors <br>
+<li> segment the "body" using thresholding <br>
+<li> resample all images to the same dimensions (96 x 192 x 192 voxels) <br>
+<li> save the resulting data to a directory ready for training <br>
+
 <h2> Model training </h2>
-todo
+Once pre-processed, the data is ready for model training!<br>
+To train a model, use <code> sh train.py --fold_num i </code> where <code>i</code> is an integer in [1,2,3,4,5]<br>
+Current hyper-parameter setings in <strong>train.py</strong> will reproduce our submitted model.<br>
 
 <h2> ONNX compilation + Inference </h2>
 <h3> Compile </h3>

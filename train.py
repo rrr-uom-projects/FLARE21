@@ -1,3 +1,8 @@
+## train.py
+# reads in .npy format training data (pre-processed with train_preprocessing.py)
+# use   $ python train.py --fold_num i
+# or    $ sh train_multi_folds.sh
+
 import torch
 import torch.optim as optim
 from torch.optim.lr_scheduler import ReduceLROnPlateau
@@ -16,13 +21,9 @@ from roughSeg.utils import k_fold_split_train_val_test, get_logger, get_number_o
 source_dir = "/data/FLARE21/training_data_192_sameKidneys/"
 input_size = (96,192,192)
 
-# For asymmetric, change BS     3 -> 2
-#                        lr 0.005 -> 0.001 
-
 def setup_argparse():
     parser = ap.ArgumentParser(prog="Main training program for MCR_RRR's FLARE21 submission - \"COBRA\"")
     parser.add_argument("--fold_num", choices=[1,2,3,4,5], type=int, help="The fold number for the kfold cross validation")
-    parser.add_argument("--GPUs", choices=[1,2], type=int, default=1, help="Number of GPUs to use")
     global args
     args = parser.parse_args()
 
@@ -37,9 +38,10 @@ def main():
     maskdir = os.path.join(source_dir, "scaled_masks/")
 
     # Create main logger
-    logger = get_logger('organHunter_Training')
+    logger = get_logger('COBRA_Training')
 
     # Create the model
+    # labels: 0 - air, 1 - body, 2 - liver, 3 - kidneys, 4 - spleen, 5 - pancreas
     n_classes = 6
     model = nano_segmenter(n_classes=n_classes, in_channels=2, p_drop=0)
 
@@ -65,9 +67,9 @@ def main():
     label_freq = np.load(os.path.join(source_dir, "label_freq.npy"))
 
     # Create them dataloaders
-    train_data = segmenter_Dataset(imagedir=imagedir, maskdir=maskdir, image_inds=train_inds, n_classes=n_classes, shift_augment=True, rotate_augment=True, scale_augment=True, flip_augment=False)
+    train_data = segmenter_dataset(imagedir=imagedir, maskdir=maskdir, image_inds=train_inds, n_classes=n_classes, shift_augment=True, rotate_augment=True, scale_augment=True, flip_augment=False)
     train_loader = DataLoader(dataset=train_data, batch_size=train_BS, shuffle=True, pin_memory=False, num_workers=train_workers, worker_init_fn=lambda _: np.random.seed(int(torch.initial_seed())%(2**32-1)))
-    val_data = segmenter_Dataset(imagedir=imagedir, maskdir=maskdir, image_inds=val_inds, n_classes=n_classes, shift_augment=False, rotate_augment=False, scale_augment=False, flip_augment=False)
+    val_data = segmenter_dataset(imagedir=imagedir, maskdir=maskdir, image_inds=val_inds, n_classes=n_classes, shift_augment=False, rotate_augment=False, scale_augment=False, flip_augment=False)
     val_loader = DataLoader(dataset=val_data, batch_size=val_BS, shuffle=True, pin_memory=False, num_workers=val_workers, worker_init_fn=lambda _: np.random.seed(int(torch.initial_seed())%(2**32-1)))
 
     # Create the optimizer
@@ -86,7 +88,7 @@ def main():
     # Romeo Dunn
     return
     
-class segmenter_Dataset(data.Dataset):
+class segmenter_dataset(data.Dataset):
     def __init__(self, imagedir, maskdir, image_inds, n_classes, shift_augment=True, rotate_augment=True, scale_augment=True, flip_augment=False):
         self.imagedir = imagedir
         self.maskdir = maskdir
@@ -121,7 +123,7 @@ class segmenter_Dataset(data.Dataset):
             mask = mask[mx_x+cc_shift:input_size[0]+mx_x+cc_shift, mx_yz+ap_shift:input_size[1]+mx_yz+ap_shift, mx_yz+lr_shift:input_size[2]+mx_yz+lr_shift]
 
         if self.rotations and random.random()<0.5:
-            # taking implementation from 3DSegmentationNetwork which can be applied -> rotations in the axial plane only I should think? -10->10 degrees?
+            # taking implementation from my 3DSegmentationNetwork which can be applied -> rotations in the axial plane only I should think? -10->10 degrees?
             roll_angle = np.clip(np.random.normal(loc=0,scale=3), -10, 10)
             ct_im = self.rotation(ct_im, roll_angle, rotation_plane=(1,2), is_mask=False)
             mask = self.rotation(mask, roll_angle, rotation_plane=(1,2), is_mask=True)
