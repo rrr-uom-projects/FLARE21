@@ -9,9 +9,7 @@ import random
 import os
 import argparse as ap
 
-from models import yolo_transpose_plusplus, tiny_segmenter, tiny_attention_segmenter, nano_segmenter, pico_segmenter
-# light_segmenter, yolo_segmenter, bottleneck_yolo_segmenter, asymmetric_yolo_segmenter, asym_bottleneck_yolo_segmenter, 
-# bridged_yolo_segmenter, yolo_transpose, ytp_learnableWL 
+from models import nano_segmenter
 from trainer import segmenter_trainer
 from roughSeg.utils import k_fold_split_train_val_test, get_logger, get_number_of_learnable_parameters, getFiles, windowLevelNormalize
 
@@ -22,7 +20,7 @@ input_size = (96,192,192)
 #                        lr 0.005 -> 0.001 
 
 def setup_argparse():
-    parser = ap.ArgumentParser(prog="Main training program for 3D location-finding network \"headhunter\"")
+    parser = ap.ArgumentParser(prog="Main training program for MCR_RRR's FLARE21 submission - \"COBRA\"")
     parser.add_argument("--fold_num", choices=[1,2,3,4,5], type=int, help="The fold number for the kfold cross validation")
     parser.add_argument("--GPUs", choices=[1,2], type=int, default=1, help="Number of GPUs to use")
     global args
@@ -34,7 +32,7 @@ def main():
     global args
 
     # set directories
-    checkpoint_dir = "/data/FLARE21/models/full_runs/pico_segmenter_192/fold"+str(args.fold_num)
+    checkpoint_dir = "/data/FLARE21/models/full_runs/nano_segmenter_192/fold"+str(args.fold_num)
     imagedir = os.path.join(source_dir, "scaled_ims/")
     maskdir = os.path.join(source_dir, "scaled_masks/")
 
@@ -43,7 +41,7 @@ def main():
 
     # Create the model
     n_classes = 6
-    model = pico_segmenter(n_classes=n_classes, in_channels=1, p_drop=0)
+    model = nano_segmenter(n_classes=n_classes, in_channels=2, p_drop=0)
 
     for param in model.parameters():
         param.requires_grad = True
@@ -54,7 +52,7 @@ def main():
 
     # Log the number of learnable parameters
     logger.info(f'Number of learnable params {get_number_of_learnable_parameters(model)}')
-    train_BS = int(6) # change 3->2 for asymmetric
+    train_BS = int(6)
     val_BS = int(6)
     train_workers = int(4)
     val_workers = int(4)
@@ -73,7 +71,7 @@ def main():
     val_loader = DataLoader(dataset=val_data, batch_size=val_BS, shuffle=True, pin_memory=False, num_workers=val_workers, worker_init_fn=lambda _: np.random.seed(int(torch.initial_seed())%(2**32-1)))
 
     # Create the optimizer
-    optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr = 0.005) # change 0.005->0.001 for asymmetric
+    optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr = 0.001)
 
     # Create learning rate adjustment strategy
     lr_scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=75, verbose=True)
@@ -139,21 +137,9 @@ class segmenter_Dataset(data.Dataset):
             raise NotImplementedError # LR flips shouldn't be applied I don't think
     
         # perform window-levelling here, create 3 channels
-        level = (-1 * np.absolute(np.random.normal(loc=50, scale=7.5) - 50)) + 50
-        window = np.random.normal(loc=400, scale=10)
-        ct_im = windowLevelNormalize(ct_im, level=level, window=window)[np.newaxis]
-        '''
-        if self.contrastAugs:
-            level = (-1 * np.absolute(np.random.normal(loc=50, scale=7.5) - 50)) + 50
-            window = np.random.normal(loc=400, scale=10)
-            ct_im = windowLevelNormalize(ct_im, level=level, window=window)
-        else:
-            ct_im3 = np.zeros(shape=(2,) + ct_im.shape)
-            ct_im3[0] = windowLevelNormalize(ct_im, level=50, window=400)   # abdomen "soft tissues"
-            ct_im3[1] = windowLevelNormalize(ct_im, level=60, window=100)   # pancreas
-        '''
-        # start with a single soft tissue channel
-        #ct_im = windowLevelNormalize(ct_im, level=50, window=400)[np.newaxis]   # abdomen "soft tissues"
+        ct_im3 = np.zeros(shape=(2,) + ct_im.shape)
+        ct_im3[0] = windowLevelNormalize(ct_im, level=50, window=400)   # abdomen "soft tissues"
+        ct_im3[1] = windowLevelNormalize(ct_im, level=60, window=100)   # pancreas
         
         # use one-hot masks
         mask = (np.arange(self.n_classes) == mask[...,None]).astype(int)

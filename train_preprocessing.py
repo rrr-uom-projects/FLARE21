@@ -1,5 +1,12 @@
-# generate_targets.py
-## script to generate the the CoM targets of the organs
+## train_preprocessing.py
+# A script to prepare images and gold standard segmentations prior to training
+# 1. read in the .nii.gz image and mask pair
+# 2. correct orientation errors using SimpleITK
+# 3. generate body mask with thresholding and binary operations
+# 4. identify missing OAR labels 
+# 5. resample to a common size (96 x 192 x 192 voxels)
+# 6. save output to training images and masks source directory
+
 import numpy as np
 from skimage.transform import resize
 from scipy.ndimage import binary_fill_holes, binary_closing
@@ -13,17 +20,11 @@ out_dir = "/data/FLARE21/training_data_160_sameKidneys/"
 out_imdir = os.path.join(out_dir, "scaled_ims/")
 out_maskdir = os.path.join(out_dir, "scaled_masks/")
 
-out_resolution = (96,160,160)
+out_resolution = (96,192,192)
 
 # OARs : 1 - Liver, 2 - Kidneys, 3 - Spleen, 4 - Pancreas
 # IMPORTANT! : sitk_image.GetDirection()[-1] -> (1 or -1) -> flip cranio-caudally if -1
-# Output: OAR labels : 1- Body, 2 - Liver, 3 - Kidney L, 4 - Kidney R, 5 - Spleen, 6 - Pancreas
-
-def split_kidneys(mask):
-    mask_new = mask.copy()
-    mask_new[mask > 1] += 1             # bump up the kidneys, spleen and pancreas -> OAR labels : 1 - Liver, 3 - Kidneys, 4 - Spleen, 5 - Pancreas
-    mask_new[:,:,:256][(mask[:,:,:256] == 2)] = 2 # reassign the left kidney       -> OAR labels : 1 - Liver, 2 - Kidney L, 3 - Kidney R, 4 - Spleen, 5 - Pancreas
-    return mask_new
+# Output: OAR labels : 1- Body, 2 - Liver, 3 - Kidneys , 4 - Spleen, 5 - Pancreas
 
 sizes_scaled = np.zeros((361,3))
 spacings_scaled = np.zeros((361,3))
@@ -44,9 +45,6 @@ for pdx, fname in enumerate(sorted(getFiles(imdir))):
         im = np.flip(im, axis=2)        # flip LR --> this works, should be made more robust though (with sitk cosine matrix)
         mask = np.flip(mask, axis=0)
         mask = np.flip(mask, axis=2)
-    
-    # split the kidneys
-    #mask = split_kidneys(mask)
 
     # use id body to generate body delineation too
     # threshold
@@ -105,10 +103,3 @@ np.save(os.path.join(out_dir, "spacings_scaled.npy"), spacings_scaled)
 np.save(os.path.join(out_dir, "labels_present.npy"), labels_present)
 print(label_freq)
 np.save(os.path.join(out_dir, "label_freq.npy"), label_freq)
-'''
-a = np.load("label_freq.npy")
-print(a)
-a = a[:-1]
-print(a)
-np.save("label_freq.npy", a)
-'''
