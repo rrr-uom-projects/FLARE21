@@ -1,4 +1,4 @@
-<h1> RRR_MCR FLARE21 submission: Cpu-Only aBdominal oRgan segmentAtion (COBRA)</h1>
+<h1> MCR_RRR FLARE21 submission: Cpu-Only aBdominal oRgan segmentAtion (COBRA)</h1>
 <h2> Training data preprocessing </h2>
 Before training our model, the training data needs to be pre-processing. For this use <strong>train_preprocessing.py</strong> in the parent directory.<br>
 This script will:<br>
