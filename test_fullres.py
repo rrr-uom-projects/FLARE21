@@ -8,17 +8,17 @@ from skimage.transform import resize
 import nvgpu
 from multiprocessing import Process, Value
 
-from model_archive import yolo_segmenter
-from models import superres_segmenter, fullRes_segmenter, yolo_transpose_plusplus, tiny_segmenter, tiny_inference_segmenter, tiny_attention_segmenter, nano_segmenter
+from models import nano_segmenter, pico_segmenter
 # light_segmenter, bottleneck_yolo_segmenter, asymmetric_yolo_segmenter, asym_bottleneck_yolo_segmenter, 
 # bridged_yolo_segmenter, yolo_transpose, yolo_transpose_plusplus, ytp_learnableWL
+# superres_segmenter, fullRes_segmenter, yolo_transpose_plusplus, tiny_segmenter, tiny_inference_segmenter, tiny_attention_segmenter
 from roughSeg.utils import k_fold_split_train_val_test, get_logger, getFiles, windowLevelNormalize
 import roughSeg.deepmind_metrics as deepmind_metrics
 
 source_dir = "/data/FLARE21/training_data_192_sameKidneys/"
 input_dir = "/data/FLARE21/training_data/TrainingImg/"
 mask_dir = "/data/FLARE21/training_data/TrainingMask/"
-output_dir = "/data/FLARE21/results/full_runs/nano_segmenter_192_1mm/"
+output_dir = "/data/FLARE21/results/full_runs/pico_segmenter_192_1mm/"
 input_size = (96,192,192)
 folds = [1,2,3,4,5]
 organs = ["liver", "kidneys", "spleen", "pancreas"]
@@ -56,7 +56,7 @@ def main():
         pass
 
     # Create the model
-    model = nano_segmenter(n_classes=6, in_channels=2, p_drop=0) #, initial_levels=[1,1,1], initial_windows=[1,1,1]
+    model = pico_segmenter(n_classes=6, in_channels=1, p_drop=0) #, initial_levels=[1,1,1], initial_windows=[1,1,1]
 
     # put the model on GPU
     model.to('cuda')
@@ -68,7 +68,7 @@ def main():
     # iterate over folds
     for fdx, fold_num in enumerate(folds):
         # get checkpoint dir
-        checkpoint_dir = f"/data/FLARE21/models/full_runs/nano_segmenter_192/fold{fold_num}/"
+        checkpoint_dir = f"/data/FLARE21/models/full_runs/pico_segmenter_192/fold{fold_num}/"
 
         # load in the best model version
         model.load_best(checkpoint_dir, logger)
@@ -104,11 +104,11 @@ def main():
             logger.info(f"Image downsampling took {time.time()-t:.4f} seconds")
             # preprocessing
             ct_im = np.clip(ct_im, -1024, 2000)
-            #ct_im = windowLevelNormalize(ct_im, level=50, window=400)[np.newaxis, np.newaxis] # add dummy batch and channels axes
-            ct_im2 = np.zeros(shape=(2,) + ct_im.shape)
-            ct_im2[0] = windowLevelNormalize(ct_im, level=50, window=400)   # abdomen "soft tissues"
-            ct_im2[1] = windowLevelNormalize(ct_im, level=60, window=100)   # pancreas
-            ct_im = ct_im2[np.newaxis].copy() # add dummy batch axis
+            ct_im = windowLevelNormalize(ct_im, level=50, window=400)[np.newaxis, np.newaxis] # add dummy batch and channels axes
+            #ct_im2 = np.zeros(shape=(2,) + ct_im.shape)
+            #ct_im2[0] = windowLevelNormalize(ct_im, level=50, window=400)   # abdomen "soft tissues"
+            #ct_im2[1] = windowLevelNormalize(ct_im, level=60, window=100)   # pancreas
+            #ct_im = ct_im2[np.newaxis].copy() # add dummy batch axis
             # run forward pass
             t = time.time()
             #prediction = model(torch.tensor(ct_im, dtype=torch.float).to('cuda'), gold_mask.shape)
@@ -135,7 +135,6 @@ def main():
             np.save(os.path.join(output_dir, "full_res_test_segs/", 'pred_'+test_fname), prediction)
             # get spacing for this image
             spacing = np.array(sitk_mask.GetSpacing())[[2,0,1]]
-            print(spacing)
             t = time.time()
             # get present labels
             labels_present = labels_present_all[test_ind]
@@ -158,10 +157,12 @@ def main():
                     for feature_label in range(2, num_features+1):
                         if primary_vol_threshold > (labels==feature_label).sum():
                             pred[labels==feature_label] = 0
+                # smooth?
+                pred = ndimage.median_filter(pred, (3,3,3))
                 # compute the surface distances
                 surface_distances = deepmind_metrics.compute_surface_distances(gs.astype(bool), pred.astype(bool), spacing)
                 # compute desired metric
-                surface_DSC = deepmind_metrics.compute_surface_dice_at_tolerance(surface_distances, tolerance_mm=5.)
+                surface_DSC = deepmind_metrics.compute_surface_dice_at_tolerance(surface_distances, tolerance_mm=1.)
                 # store result
                 res[fdx, pat_idx, organ_idx, 0] = dice(gs, pred)
                 res[fdx, pat_idx, organ_idx, 1] = surface_DSC

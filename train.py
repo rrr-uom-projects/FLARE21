@@ -73,7 +73,7 @@ def main():
     val_loader = DataLoader(dataset=val_data, batch_size=val_BS, shuffle=True, pin_memory=False, num_workers=val_workers, worker_init_fn=lambda _: np.random.seed(int(torch.initial_seed())%(2**32-1)))
 
     # Create the optimizer
-    optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr = 0.005) # change 0.005->0.001 for asymmetric
+    optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr = 0.001) # change 0.005->0.001 for asymmetric
 
     # Create learning rate adjustment strategy
     lr_scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=75, verbose=True)
@@ -137,12 +137,17 @@ class segmenter_Dataset(data.Dataset):
         
         if self.flips:
             raise NotImplementedError # LR flips shouldn't be applied I don't think
-    
-        # perform window-levelling here, create 3 channels
+        
+        # chuck in some on-the-fly contrast augmentation
+        if random.random() < 0.5:
+            brightness_markup = np.clip(np.random.exponential(0.1), 0, 1)
+            ct_im = np.multiply(ct_im, np.ones_like(ct_im) + ((mask - 1) > 0).astype(int)*brightness_markup)
+
         level = (-1 * np.absolute(np.random.normal(loc=50, scale=7.5) - 50)) + 50
         window = np.random.normal(loc=400, scale=10)
         ct_im = windowLevelNormalize(ct_im, level=level, window=window)[np.newaxis]
         '''
+        # perform window-levelling here
         if self.contrastAugs:
             level = (-1 * np.absolute(np.random.normal(loc=50, scale=7.5) - 50)) + 50
             window = np.random.normal(loc=400, scale=10)
@@ -154,7 +159,7 @@ class segmenter_Dataset(data.Dataset):
         '''
         # start with a single soft tissue channel
         #ct_im = windowLevelNormalize(ct_im, level=50, window=400)[np.newaxis]   # abdomen "soft tissues"
-        
+
         # use one-hot masks
         mask = (np.arange(self.n_classes) == mask[...,None]).astype(int)
         mask = np.transpose(mask, axes=(3,0,1,2))
