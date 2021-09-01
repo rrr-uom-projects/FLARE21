@@ -1,4 +1,8 @@
 <h1> FLARE21 </h1>
+<h2> Training data preprocessing </h2>
+todo
+<h2> Model training </h2>
+todo
 
 <h2> ONNX compilation + Inference </h2>
 <h3> Compile </h3>
