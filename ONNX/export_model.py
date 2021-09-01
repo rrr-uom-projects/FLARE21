@@ -28,9 +28,9 @@ parser.add_argument("weights", help="Path to weights", type=str)
 parser.add_argument("output", help="Output filename (+.onnx)", type=str)
 parser.add_argument("--check_model", default=True, help="Check compiled model", type=str2bool)
 parser.add_argument("--check_output", default=True, help="Check onnx model outputs against pytorch model's", type=str2bool)
-parser.add_argument("--quantize", default=True, help="Quantize model to decrease size (def. int8)", type=str2bool)
-parser.add_argument("--calibration_data", default="/ data/FLARE21/training_data_192_sameKidneys/scaled_ims/",
-                     help="Calibration dataset for static quantization", type=str)
+# parser.add_argument("--quantize", default=True, help="Quantize model to decrease size (def. int8)", type=str2bool)
+# parser.add_argument("--calibration_data", default="/ data/FLARE21/training_data_192_sameKidneys/scaled_ims/",
+#                      help="Calibration dataset for static quantization", type=str)
 args = parser.parse_args()
 
 
@@ -79,24 +79,24 @@ def export():
         onnx_model = onnx.load(args.output + '.onnx')
         onnx.checker.check_model(onnx_model)
     
-    if args.quantize:
-        input_model = args.output + '.onnx'
-        output_model = args.output + '.quant.onnx'
-        calibration_data = args.calibration_data
-        #* Get train image idx
-        dataset_size = len(getFiles(calibration_data))
-        print('Dataset size', dataset_size)
-        train_idx, _, _ = k_fold_split_train_val_test(
-            dataset_size, fold_num=1, seed=230597)  # ! Use test set from first fold for now
-        print('# Calibration examples', len(train_idx))
-        dataset = ONNXReader(calibration_data, train_idx)
-        quantize_static(input_model, 
-                        output_model, 
-                        dataset, 
-                        quant_format=QuantFormat.QOperator,
-                        per_channel=False, 
-                        weight_type=QuantType.QInt8)
-        print("Calibrated and quantized model saved.")
+    # if args.quantize:
+    #     input_model = args.output + '.onnx'
+    #     output_model = args.output + '.quant.onnx'
+    #     calibration_data = args.calibration_data
+    #     #* Get train image idx
+    #     dataset_size = len(getFiles(calibration_data))
+    #     print('Dataset size', dataset_size)
+    #     train_idx, _, _ = k_fold_split_train_val_test(
+    #         dataset_size, fold_num=1, seed=230597)  # ! Use test set from first fold for now
+    #     print('# Calibration examples', len(train_idx))
+    #     dataset = ONNXReader(calibration_data, train_idx)
+    #     quantize_static(input_model, 
+    #                     output_model, 
+    #                     dataset, 
+    #                     quant_format=QuantFormat.QOperator,
+    #                     per_channel=False, 
+    #                     weight_type=QuantType.QInt8)
+    #     print("Calibrated and quantized model saved.")
 
         #Dynamic quantization
         #quantize_dynamic(args.output+'.onnx', args.output + ".quant.onnx", weight_type=QuantType.QUInt8)

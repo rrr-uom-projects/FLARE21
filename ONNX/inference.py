@@ -23,7 +23,7 @@ from train import segmenter_Dataset
 parser = ArgumentParser(prog="Run ONNX inference on test set")
 parser.add_argument("img_dir", help="Path to test images", type=str)
 parser.add_argument("model_path", help="Path to ONNX model", type=str)
-parser.add_argument("outsize_path", help="Path to CSV file with output sizes", type=str)
+# parser.add_argument("outsize_path", help="Path to CSV file with output sizes", type=str)
 args = parser.parse_args()
 
 test_workers = 1
