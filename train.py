@@ -1,7 +1,13 @@
 ## train.py
-# reads in .npy format training data (pre-processed with train_preprocessing.py)
-# use   $ python train.py --fold_num i
-# or    $ sh train_multi_folds.sh
+# 1. IMPORTANT: first use train_preprocessing.py to format data for training
+#               this script reads in .npy format training data
+#
+# 2. Setup up the required directory paths (highlighted on lines 25 and 40):
+#                "source_dir" is the directory containing the preprocessed image and masks
+#                "checkpoint_dir" is the directory to save the model weights and training statistics for visualisation with tensorboard
+#
+# 3. Train!:    use   $ python train.py --fold_num i
+#               or    $ sh train_multi_folds.sh
 
 import torch
 import torch.optim as optim
@@ -18,7 +24,7 @@ from models import nano_segmenter
 from trainer import segmenter_trainer
 from utils import k_fold_split_train_val_test, get_logger, get_number_of_learnable_parameters, getFiles, windowLevelNormalize
 
-source_dir = "/data/FLARE21/training_data_192_sameKidneys/"
+source_dir = "/data/FLARE21/training_data_192_sameKidneys/" # DIRECTORY PATH TO SETUP -> this should be the same as "out_dir" in train_preprocessing.py
 input_size = (96,192,192)
 
 def setup_argparse():
@@ -33,7 +39,7 @@ def main():
     global args
 
     # set directories
-    checkpoint_dir = "/data/FLARE21/models/testing_runs/nano_segmenter_192/fold"+str(args.fold_num)
+    checkpoint_dir = "/data/FLARE21/models/testing_runs/nano_segmenter_192/fold"+str(args.fold_num) # DIRECTORY PATH TO SETUP
     imagedir = os.path.join(source_dir, "scaled_ims/")
     maskdir = os.path.join(source_dir, "scaled_masks/")
 

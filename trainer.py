@@ -1,3 +1,7 @@
+## trainer.py
+# The segmenter_trainer class runs the main training loop
+# the weighted multiclass soft Dice loss fn is implemented here too
+
 import os
 import torch
 import numpy as np
@@ -29,6 +33,8 @@ def multiclass_simple_dice_loss(prediction, mask, ignore_index, label_freq, useW
     dice_pred = F.softmax(prediction, dim=1)
     
     '''
+    # This bit is meant to deal with missing labels in the gold standard
+    # I'm not sure it's working terribly well, so I've removed it for now --Ed
     if (ignore_index==False).any():
         # we are missing gold standard masks for some structures
         # change all predicted pixels of the missing structure to background -> 0

@@ -1,4 +1,5 @@
-# headHunter_utils.py
+## utils.py
+# some useful functions!
 import numpy as np
 from itertools import cycle
 import torch

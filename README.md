@@ -12,7 +12,7 @@ This script will:<br>
 Once pre-processed, the data is ready for model training!<br>
 To train a model, use <code>python train.py --fold_num i</code> where <code>i</code> is an integer in [1,2,3,4,5]<br>
 or <code>sh train_multi_folds.sh</code><br>
-Current hyper-parameter setings in <strong>train.py</strong> will reproduce our submitted model.<br>
+Current hyper-parameter settings in <strong>train.py</strong> will reproduce our submitted model.<br>
 
 <h2> ONNX compilation + Inference </h2>
 <h3> Compile </h3>
