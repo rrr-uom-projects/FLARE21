@@ -37,3 +37,5 @@ resampling.py
 archive/roughSeg/check_missing_labels.ipynb
 
 notebooks/
+archive/check_segs.ipynb
+archive/roughSeg/check_bboxes.ipynb
