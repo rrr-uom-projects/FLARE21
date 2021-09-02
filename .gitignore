@@ -35,3 +35,5 @@ resampling.py
 *__pycache__*
 *.nii.gz
 archive/roughSeg/check_missing_labels.ipynb
+
+notebooks/
