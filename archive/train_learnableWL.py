@@ -13,7 +13,7 @@ from models import ytp_learnableWL
 # light_segmenter, yolo_segmenter, bottleneck_yolo_segmenter, asymmetric_yolo_segmenter,
 # asym_bottleneck_yolo_segmenter, bridged_yolo_segmenter, yolo_transpose, yolo_transpose_plusplus
 from trainer_learnableWL import segmenter_trainer
-from roughSeg.utils import k_fold_split_train_val_test, get_logger, get_number_of_learnable_parameters, getFiles, windowLevelNormalize
+from utils import k_fold_split_train_val_test, get_logger, get_number_of_learnable_parameters, getFiles, windowLevelNormalize
 
 source_dir = "/data/FLARE21/training_data_256/"
 input_size = (96,256,256)

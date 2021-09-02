@@ -16,7 +16,7 @@ import argparse as ap
 
 from models import nano_segmenter
 from trainer import segmenter_trainer
-from roughSeg.utils import k_fold_split_train_val_test, get_logger, get_number_of_learnable_parameters, getFiles, windowLevelNormalize
+from utils import k_fold_split_train_val_test, get_logger, get_number_of_learnable_parameters, getFiles, windowLevelNormalize
 
 source_dir = "/data/FLARE21/training_data_192_sameKidneys/"
 input_size = (96,192,192)

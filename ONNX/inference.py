@@ -17,7 +17,7 @@ import matplotlib.pyplot as plt
 from torch.utils.data import Dataset, DataLoader
 from albumentations.pytorch.transforms import ToTensor
 
-from roughSeg.utils import k_fold_split_train_val_test, getFiles
+from utils import k_fold_split_train_val_test, getFiles
 from train import segmenter_Dataset
 
 parser = ArgumentParser(prog="Run ONNX inference on test set")

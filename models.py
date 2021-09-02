@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from model_parts import conv_module, resize_conv, bottleneck_module, asym_conv_module, asym_resize_conv, asym_bottleneck_module, bridge_module, transpose_conv, learnable_WL, bottleneck_transpose_conv, kearney_attention, asym_bottleneck_transpose_conv, depthwiseSep_bottleneck_module, depthwise_separable_conv, asym_depthwiseSep_bottleneck_module, asym_depthwise_separable_conv
-from roughSeg.utils import get_number_of_learnable_parameters
+from utils import get_number_of_learnable_parameters
 
 class general_model(nn.Module):
     # template class so all models inherit the load_best method

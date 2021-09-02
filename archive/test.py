@@ -5,7 +5,7 @@ import os
 import time
 
 from models import light_segmenter, yolo_segmenter, bottleneck_yolo_segmenter, asymmetric_yolo_segmenter
-from roughSeg.utils import k_fold_split_train_val_test, get_logger, get_number_of_learnable_parameters, getFiles, windowLevelNormalize
+from utils import k_fold_split_train_val_test, get_logger, get_number_of_learnable_parameters, getFiles, windowLevelNormalize
 import roughSeg.deepmind_metrics as deepmind_metrics
 
 source_dir = "/data/FLARE21/training_data_256/"

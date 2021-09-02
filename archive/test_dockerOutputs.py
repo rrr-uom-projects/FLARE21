@@ -6,7 +6,7 @@ import time
 import SimpleITK as sitk
 from skimage.transform import resize
 
-from roughSeg.utils import k_fold_split_train_val_test, get_logger, getFiles, windowLevelNormalize
+from utils import k_fold_split_train_val_test, get_logger, getFiles, windowLevelNormalize
 import roughSeg.deepmind_metrics as deepmind_metrics
 
 docker_dir = "/data/FLARE21/test_output_BS/"

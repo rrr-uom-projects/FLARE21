@@ -16,7 +16,7 @@ import sys
 import time
 sys.path.append('..')
 
-from roughSeg.utils import k_fold_split_train_val_test, getFiles
+from utils import k_fold_split_train_val_test, getFiles
 from models import yolo_transpose_plusplus, tiny_segmenter, tiny_inference_segmenter, nano_segmenter
 from einops import rearrange
 

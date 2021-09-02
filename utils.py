@@ -34,6 +34,12 @@ def windowLevelNormalize(image, level, window):
     wld *= (1 / window)
     return wld
 
+def try_mkdir(dir_name):
+    try:
+        os.mkdir(dir_name)
+    except OSError:
+        pass
+
 def get_logger(name, level=logging.INFO):
     logger = logging.getLogger(name)
     logger.setLevel(level)

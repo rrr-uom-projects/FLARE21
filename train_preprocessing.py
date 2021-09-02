@@ -11,16 +11,21 @@ import numpy as np
 from skimage.transform import resize
 from scipy.ndimage import binary_fill_holes, binary_closing
 import SimpleITK as sitk
-from roughSeg.utils import getFiles
+from utils import getFiles, try_mkdir
 import os
 
 imdir = "/data/FLARE21/training_data/TrainingImg/"
 maskdir = "/data/FLARE21/training_data/TrainingMask/"
-out_dir = "/data/FLARE21/training_data_160_sameKidneys/"
+out_dir = "/data/FLARE21/training_data_192_sameKidneys_test/"
 out_imdir = os.path.join(out_dir, "scaled_ims/")
 out_maskdir = os.path.join(out_dir, "scaled_masks/")
 
 out_resolution = (96,192,192)
+
+# create directories to save preprocessed data to
+try_mkdir(out_dir)
+try_mkdir(out_imdir)
+try_mkdir(out_maskdir)
 
 # OARs : 1 - Liver, 2 - Kidneys, 3 - Spleen, 4 - Pancreas
 # IMPORTANT! : sitk_image.GetDirection()[-1] -> (1 or -1) -> flip cranio-caudally if -1
