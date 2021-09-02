@@ -17,9 +17,11 @@ This script will:<br>
 Once pre-processed, the data is ready for model training!<br>
 To train a model, use <code>python train.py --fold_num i</code> where <code>i</code> is an integer in [1,2,3,4,5]<br>
 or <code>sh train_multi_folds.sh</code><br>
+  
 <strong>NOTE</strong> - Two directory paths need to be changed here:<br>
 <li> source_dir: where the preprocessed images and masks are saved by the preprocessing script<br>
 <li> checkpoint_dir: where model weights and training statitics will be saved<br>
+  
 Current hyper-parameter settings in <strong>train.py</strong> will reproduce our submitted model.<br>
 
 <h2> ONNX compilation + Inference </h2>
