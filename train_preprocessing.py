@@ -14,9 +14,9 @@ import SimpleITK as sitk
 from utils import getFiles, try_mkdir
 import os
 
-imdir = "/data/FLARE21/training_data/TrainingImg/"
-maskdir = "/data/FLARE21/training_data/TrainingMask/"
-out_dir = "/data/FLARE21/training_data_192_sameKidneys_test/"
+imdir = "/data/FLARE21/training_data/TrainingImg/"              # DIRECTORY PATH TO SETUP
+maskdir = "/data/FLARE21/training_data/TrainingMask/"           # DIRECTORY PATH TO SETUP
+out_dir = "/data/FLARE21/training_data_192_sameKidneys_test/"   # DIRECTORY PATH TO SETUP
 out_imdir = os.path.join(out_dir, "scaled_ims/")
 out_maskdir = os.path.join(out_dir, "scaled_masks/")
 
