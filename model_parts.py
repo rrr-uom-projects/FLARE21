@@ -308,35 +308,6 @@ class asym_depthwiseSep_bottleneck_module(nn.Module):
         else:
             return self.bottleneck_conv(x) + x
 
-
-'''
-class strided_asym_bottleneck_module(nn.Module):
-    def __init__(self, in_channels, out_channels, p_drop=0.25):
-        super(strided_asym_bottleneck_module, self).__init__()
-        self.bottleneck_conv = nn.Sequential(
-            nn.Conv3d(in_channels=in_channels, out_channels=in_channels//2, kernel_size=(1,1,1)),
-            nn.BatchNorm3d(in_channels//2),
-            nn.ReLU(inplace=True),
-            nn.Dropout3d(p=p_drop, inplace=True),
-            nn.Conv3d(in_channels=in_channels//2, out_channels=in_channels//2, kernel_size=(3,1,1), padding=(1,0,0), stride=(2,1,1)),
-            nn.Conv3d(in_channels=in_channels//2, out_channels=in_channels//2, kernel_size=(1,3,1), padding=(0,1,0), stride=(1,2,1)),
-            nn.Conv3d(in_channels=in_channels//2, out_channels=in_channels//2, kernel_size=(1,1,3), padding=(0,0,1), stride=(1,1,2)),
-            nn.BatchNorm3d(in_channels//2),
-            nn.ReLU(inplace=True),
-            nn.Dropout3d(p=p_drop, inplace=True),
-            nn.Conv3d(in_channels=in_channels//2, out_channels=out_channels, kernel_size=(1,1,1)),
-            nn.BatchNorm3d(out_channels),
-            nn.ReLU(inplace=True),
-            nn.Dropout3d(p=p_drop, inplace=True),
-        )
-        self.res_conv = nn.Sequential(
-            nn.Conv3d(in_channels=in_channels, out_channels=out_channels, kernel_size=(1,1,1), stride=(2,2,2)),
-            nn.BatchNorm3d(out_channels),
-            nn.ReLU(inplace=True),
-        )
-    def forward(self, x):
-        return self.bottleneck_conv(x) + self.res_conv(x)
-'''
 class bridge_module(nn.Module):
     def __init__(self, channels, layers, p_drop=0.25):
         super(bridge_module, self).__init__()
