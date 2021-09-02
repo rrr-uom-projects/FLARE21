@@ -274,7 +274,7 @@ class segmenter_trainer:
             self.logger.info(f'Validation finished. Loss: {val_losses.avg}')
             return val_losses.avg
 
-    def _forward_pass(self, ct_im, mask, ignore_index):
+    def _forward_pass(self, ct_im, mask, ignore_index, spacing):
         with torch.cuda.amp.autocast():
             # forward pass
             output = self.model(ct_im)

@@ -33,7 +33,7 @@ def main():
     global args
 
     # set directories
-    checkpoint_dir = "/data/FLARE21/models/full_runs/nano_segmenter_192/fold"+str(args.fold_num)
+    checkpoint_dir = "/data/FLARE21/models/testing_runs/nano_segmenter_192/fold"+str(args.fold_num)
     imagedir = os.path.join(source_dir, "scaled_ims/")
     maskdir = os.path.join(source_dir, "scaled_masks/")
 
@@ -54,8 +54,8 @@ def main():
 
     # Log the number of learnable parameters
     logger.info(f'Number of learnable params {get_number_of_learnable_parameters(model)}')
-    train_BS = int(6)
-    val_BS = int(6)
+    train_BS = int(4)
+    val_BS = int(4)
     train_workers = int(4)
     val_workers = int(4)
 
@@ -148,7 +148,7 @@ class segmenter_dataset(data.Dataset):
         mask = np.transpose(mask, axes=(3,0,1,2))
 
         # send it
-        return {'ct_im': ct_im, 'mask': mask, 'ignore_index': ignore_index, 'spacing': spacing}
+        return {'ct_im': ct_im3, 'mask': mask, 'ignore_index': ignore_index, 'spacing': spacing}
         
     def __len__(self):
         return len(self.availableImages)
