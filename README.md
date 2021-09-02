@@ -24,3 +24,5 @@ ARGS:<br>
 <li> check_output: validates compiled model outputs against original pytorch model. <br>
 <strong>NOTE</strong>: If you get the following error <code>AssertionError: Not equal to tolerance rtol=0.001, atol=1e-05</code>. Re-running the command should fix the issue.
 <br>
+<h3> Inference </h3>  
+  Inference is performed by the <strong>inference.py</strong> script.<br>
