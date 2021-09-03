@@ -106,7 +106,6 @@ pycparser==2.20
 pycpd==2.0.0
 pygalmesh==0.9.4
 Pygments==2.9.0
-pygmsh==7.1.9
 pynvml==11.0.0
 pyparsing==2.4.7
 pyrsistent==0.18.0
@@ -142,10 +141,11 @@ testpath==0.5.0
 threadpoolctl==2.1.0
 tifffile==2021.4.8
 tomlkit==0.7.2
-torch==1.9.0+cu111
-torchaudio==0.9.0
+--find-links https://download.pytorch.org/whl/torch_stable.html
+torch==1.8.1+cu111
+torchaudio==0.8.1
 torchsummary==1.5.1
-torchvision==0.10.0+cu111
+torchvision==0.9.1+cu111
 torchviz==0.0.2
 tornado==6.1
 tqdm==4.60.0
