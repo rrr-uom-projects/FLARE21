@@ -13,10 +13,11 @@ from scipy.ndimage import binary_fill_holes, binary_closing
 import SimpleITK as sitk
 from utils import getFiles, try_mkdir
 import os
+from tqdm import tqdm
 
-imdir = "/data/FLARE21/training_data/TrainingImg/"              # DIRECTORY PATH TO SETUP
-maskdir = "/data/FLARE21/training_data/TrainingMask/"           # DIRECTORY PATH TO SETUP
-out_dir = "/data/FLARE21/training_data_192_sameKidneys_test/"   # DIRECTORY PATH TO SETUP
+imdir = "/data/AbdomenCT-1K/Image/"                     # DIRECTORY PATH TO SETUP
+maskdir = "/data/AbdomenCT-1K/Mask/"                    # DIRECTORY PATH TO SETUP
+out_dir = "/data/FLARE21/AbdomenCT-1K_training_data/"   # DIRECTORY PATH TO SETUP
 out_imdir = os.path.join(out_dir, "scaled_ims/")
 out_maskdir = os.path.join(out_dir, "scaled_masks/")
 
@@ -31,16 +32,23 @@ try_mkdir(out_maskdir)
 # IMPORTANT! : sitk_image.GetDirection()[-1] -> (1 or -1) -> flip cranio-caudally if -1
 # Output: OAR labels : 1- Body, 2 - Liver, 3 - Kidneys , 4 - Spleen, 5 - Pancreas
 
-sizes_scaled = np.zeros((361,3))
-spacings_scaled = np.zeros((361,3))
-labels_present = np.empty(shape=(361,4), dtype=bool)
+startn = 800
+stopn = 1000
+
+fnames = sorted(getFiles(maskdir))[startn:stopn]
+n_images = len(fnames)
+print(f"n_images: {n_images}")
+
+sizes_scaled = np.zeros((n_images, 3))
+spacings_scaled = np.zeros((n_images, 3))
+labels_present = np.empty(shape=(n_images, 4), dtype=bool)
 label_freq = np.zeros((6))
-for pdx, fname in enumerate(sorted(getFiles(imdir))):
+for pdx, fname in enumerate(tqdm(fnames)):
     # load files
-    print(f"Processing {fname.replace('_0000.nii.gz','')}")
-    sitk_im = sitk.ReadImage(os.path.join(imdir, fname))
+    #print(f"Processing {fname.replace('_0000.nii.gz','')}")
+    sitk_im = sitk.ReadImage(os.path.join(imdir, fname.replace('.nii.gz','_0000.nii.gz')))
     im = sitk.GetArrayFromImage(sitk_im)
-    sitk_mask = sitk.ReadImage(os.path.join(maskdir, fname.replace('_0000','')))
+    sitk_mask = sitk.ReadImage(os.path.join(maskdir, fname))
     mask = sitk.GetArrayFromImage(sitk_mask).astype(float)
 
     # check if flip required
@@ -89,14 +97,14 @@ for pdx, fname in enumerate(sorted(getFiles(imdir))):
     spacing /= scale_factor[[2,1,0]]
     
     # lil bit of output
-    print(f"Rescaling, factor: {scale_factor}, new spacing {spacing} ...")
+    #print(f"Rescaling, factor: {scale_factor}, new spacing {spacing} ...")
 
     # finally clip intensity range (true HU - not Wm HU)
     im = np.clip(im, -1024, 2000)
 
     # output
-    np.save(os.path.join(out_imdir, fname.replace('_0000.nii.gz','.npy')), im)
-    np.save(os.path.join(out_maskdir, fname.replace('_0000.nii.gz','.npy')), mask)
+    np.save(os.path.join(out_imdir, fname.replace('.nii.gz','.npy')), im)
+    np.save(os.path.join(out_maskdir, fname.replace('.nii.gz','.npy')), mask)
 
     # extras
     spacings_scaled[pdx] = spacing
@@ -104,7 +112,7 @@ for pdx, fname in enumerate(sorted(getFiles(imdir))):
         label_freq[odx] += (mask==odx).sum()
 
 # save newly scaled spacings and sizes
-np.save(os.path.join(out_dir, "spacings_scaled.npy"), spacings_scaled)
-np.save(os.path.join(out_dir, "labels_present.npy"), labels_present)
+np.save(os.path.join(out_dir, f"spacings_scaled_{startn}_{stopn}.npy"), spacings_scaled)
+np.save(os.path.join(out_dir, f"labels_present_{startn}_{stopn}.npy"), labels_present)
 print(label_freq)
-np.save(os.path.join(out_dir, "label_freq.npy"), label_freq)
+np.save(os.path.join(out_dir, f"label_freq_{startn}_{stopn}.npy"), label_freq)
