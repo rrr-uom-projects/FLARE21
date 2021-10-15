@@ -24,7 +24,7 @@ from models import nano_segmenter
 from trainer import segmenter_trainer
 from utils import k_fold_split_train_val_test, get_logger, get_number_of_learnable_parameters, getFiles, windowLevelNormalize
 
-source_dir = "/data/FLARE21/training_data_192_sameKidneys/" # DIRECTORY PATH TO SETUP -> this should be the same as "out_dir" in train_preprocessing.py
+source_dir =  "/data/FLARE21/AbdomenCT-1K_training_data/" # DIRECTORY PATH TO SETUP -> this should be the same as "out_dir" in train_preprocessing.py
 input_size = (96,192,192)
 
 def setup_argparse():
@@ -39,7 +39,7 @@ def main():
     global args
 
     # set directories
-    checkpoint_dir = "/data/FLARE21/models/testing_runs/nano_segmenter_192/fold"+str(args.fold_num) # DIRECTORY PATH TO SETUP
+    checkpoint_dir = "/data/FLARE21/models/AbdomenCT-1K/nano_segmenter_192/fold"+str(args.fold_num) # DIRECTORY PATH TO SETUP
     imagedir = os.path.join(source_dir, "scaled_ims/")
     maskdir = os.path.join(source_dir, "scaled_masks/")
 
@@ -68,6 +68,7 @@ def main():
     # allocate ims to train, val and test
     dataset_size = len(sorted(getFiles(imagedir)))
     train_inds, val_inds, test_inds = k_fold_split_train_val_test(dataset_size, fold_num=args.fold_num, seed=230597)
+    print(len(train_inds), len(val_inds), len(test_inds))
 
     # get label frequencies for weighted loss fns
     label_freq = np.load(os.path.join(source_dir, "label_freq.npy"))
