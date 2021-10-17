@@ -8,19 +8,17 @@ from skimage.transform import resize
 import nvgpu
 from multiprocessing import Process, Value
 
-from model_archive import yolo_segmenter
-from models import superres_segmenter, fullRes_segmenter, yolo_transpose_plusplus, tiny_segmenter, tiny_inference_segmenter, tiny_attention_segmenter, nano_segmenter
-# light_segmenter, bottleneck_yolo_segmenter, asymmetric_yolo_segmenter, asym_bottleneck_yolo_segmenter, 
-# bridged_yolo_segmenter, yolo_transpose, yolo_transpose_plusplus, ytp_learnableWL
+from models import nano_segmenter
 from utils import k_fold_split_train_val_test, get_logger, getFiles, windowLevelNormalize
-import roughSeg.deepmind_metrics as deepmind_metrics
+import archive.roughSeg.deepmind_metrics as deepmind_metrics
 
-source_dir = "/data/FLARE21/training_data_192_sameKidneys/"
-input_dir = "/data/FLARE21/training_data/TrainingImg/"
-mask_dir = "/data/FLARE21/training_data/TrainingMask/"
-output_dir = "/data/FLARE21/results/full_runs/nano_segmenter_192_1mm/"
+nii_source_dir = "/data/AbdomenCT-1K/"
+npy_source_dir = "/data/FLARE21/AbdomenCT-1K_training_data/"
+image_dir = "/data/FLARE21/AbdomenCT-1K_training_data/scaled_ims/"
+mask_dir = "/data/FLARE21/AbdomenCT-1K_training_data/scaled_masks/"
+output_dir = "/data/FLARE21/results/AbdomenCT-1K/"
 input_size = (96,192,192)
-folds = [1,2,3,4,5]
+folds = [1]
 organs = ["liver", "kidneys", "spleen", "pancreas"]
 base_vram = nvgpu.gpu_info()[0]['mem_used']
 
@@ -45,11 +43,10 @@ def main():
     p.start()
 
     # get stuff
-    imagedir = os.path.join(source_dir, "scaled_ims/")
-    dataset_size = len(sorted(getFiles(imagedir))) # 72
-    all_fnames = sorted(getFiles(imagedir))
-    spacings = np.load(os.path.join(source_dir, "spacings_scaled.npy"))[:,[2,0,1]]    # change order from (AP,LR,CC) to (CC,AP,LR)
-    labels_present_all = np.load(os.path.join(source_dir, "labels_present.npy"))
+    all_fnames = sorted(getFiles(mask_dir))
+    dataset_size = len(all_fnames)
+    spacings = np.load(os.path.join(npy_source_dir, "spacings_scaled.npy"))[:,[2,0,1]]    # change order from (AP,LR,CC) to (CC,AP,LR)
+    labels_present_all = np.load(os.path.join(npy_source_dir, "labels_present.npy"))
     try:
         os.mkdir(output_dir)
     except OSError:
@@ -68,7 +65,7 @@ def main():
     # iterate over folds
     for fdx, fold_num in enumerate(folds):
         # get checkpoint dir
-        checkpoint_dir = f"/data/FLARE21/models/full_runs/nano_segmenter_192/fold{fold_num}/"
+        checkpoint_dir = f"/data/FLARE21/models/AbdomenCT-1K/fold{fold_num}/"
 
         # load in the best model version
         model.load_best(checkpoint_dir, logger)
@@ -79,18 +76,18 @@ def main():
         model.eval()
 
         # allocate ims to train, val and test
-        train_inds, val_inds, test_inds = k_fold_split_train_val_test(dataset_size, fold_num=fold_num, seed=230597)
+        _, _, test_inds = k_fold_split_train_val_test(dataset_size, fold_num=fold_num, seed=230597)
 
         # get test fnames
-        test_im_fnames = [all_fnames[ind] for ind in test_inds]
+        test_fnames = [all_fnames[ind] for ind in test_inds]
         # iterate over each testing image
-        for pat_idx, (test_fname, test_ind) in enumerate(zip(test_im_fnames, test_inds)):
+        for pat_idx, (test_fname, test_ind) in enumerate(zip(test_fnames, test_inds)):
             # load image and normalise
             t = time.time()
-            sitk_image = sitk.ReadImage(os.path.join(input_dir, test_fname.replace('.npy','_0000.nii.gz')))
+            sitk_image = sitk.ReadImage(os.path.join(nii_source_dir, "Image", test_fname.replace('.npy','_0000.nii.gz')))
             ct_im = sitk.GetArrayFromImage(sitk_image)
             # load gold standard segmentation in full resolution
-            sitk_mask = sitk.ReadImage(os.path.join(mask_dir, test_fname.replace('.npy','.nii.gz')))
+            sitk_mask = sitk.ReadImage(os.path.join(nii_source_dir, "Mask", test_fname.replace('.npy','.nii.gz')))
             gold_mask = sitk.GetArrayFromImage(sitk_mask).astype(int)
             # reorient if required
             if sitk_mask.GetDirection()[-1] == -1:
@@ -111,17 +108,14 @@ def main():
             ct_im = ct_im2[np.newaxis].copy() # add dummy batch axis
             # run forward pass
             t = time.time()
-            #prediction = model(torch.tensor(ct_im, dtype=torch.float).to('cuda'), gold_mask.shape)
             prediction = model(torch.tensor(ct_im, dtype=torch.float).to('cuda'))
             logger.info(f"{test_fname} inference took {time.time()-t:.4f} seconds")
             # change prediction from one-hot to mask and move back to cpu for metric calculation
             prediction = torch.squeeze(prediction)
             prediction = torch.argmax(prediction, dim=0)
             prediction = prediction.cpu().numpy().astype(int)
-            # drop the body and label the kidneys together          # OAR labels : 1 - Body, 2 - Liver, 3 - Kidney L, 4 - Kidney R, 5 - Spleen, 6 - Pancreas
-            prediction -= 1                                         # -> OAR labels : 0 - Body, 1 - Liver, 2 - Kidney L, 3 - Kidney R, 4 - Spleen, 5 - Pancreas
-            print("WARNING: assuming model trained with kidneys as same label...")
-            #prediction[prediction >= 3] -= 1                        # -> OAR labels : 0 - Body, 1 - Liver, 2 - Kidneys, 3 - Spleen, 4 - Pancreas
+            # drop the body and label the kidneys together          # OAR labels : 1 - Body, 2 - Liver, 3 - Kidneys, 4 - Spleen, 5 - Pancreas
+            prediction -= 1                                         
             prediction = np.clip(prediction, 0, prediction.max())   # -> OAR labels : 0 - Background, 1 - Liver, 2 - Kidneys, 3 - Spleen, 4 - Pancreas
             # rescale the prediction to match the full-resolution mask
             t = time.time()
@@ -161,7 +155,7 @@ def main():
                 # compute the surface distances
                 surface_distances = deepmind_metrics.compute_surface_distances(gs.astype(bool), pred.astype(bool), spacing)
                 # compute desired metric
-                surface_DSC = deepmind_metrics.compute_surface_dice_at_tolerance(surface_distances, tolerance_mm=5.)
+                surface_DSC = deepmind_metrics.compute_surface_dice_at_tolerance(surface_distances, tolerance_mm=1.)
                 # store result
                 res[fdx, pat_idx, organ_idx, 0] = dice(gs, pred)
                 res[fdx, pat_idx, organ_idx, 1] = surface_DSC
