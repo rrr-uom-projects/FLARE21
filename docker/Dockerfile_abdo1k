@@ -1,0 +1,15 @@
+from ubuntu:20.04
+
+run apt update && apt upgrade -y
+run apt install -y python3 python3-pip
+
+run pip install --no-cache-dir onnx onnxruntime 
+run pip install --no-cache-dir numba  SimpleITK==2.0.2
+
+run mkdir /rrr-models
+
+copy ./inference.py /rrr-models
+copy ./compiled_model_AbdomenCT1K.onnx /rrr-models
+
+copy ./predict_abdo1k.sh ./predict.sh
+
