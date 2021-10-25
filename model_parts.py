@@ -98,11 +98,15 @@ class bottleneck_module(nn.Module):
                 nn.BatchNorm3d(out_channels),
                 nn.ReLU(inplace=True),
             )
+        else:
+            self.res_conv = None
     def forward(self, x):
         if self.res_conv is not None:
             return self.bottleneck_conv(x) + self.res_conv(x)
         else:
             return self.bottleneck_conv(x) + x
+
+
 
 class asym_conv_module(nn.Module):
     def __init__(self, in_channels, out_channels, p_drop=0.25):
@@ -220,34 +224,90 @@ class kearney_attention(nn.Module):
         x12 = self.chain(x12)
         return x1 * x12
 
-'''
-class strided_asym_bottleneck_module(nn.Module):
-    def __init__(self, in_channels, out_channels, p_drop=0.25):
-        super(strided_asym_bottleneck_module, self).__init__()
-        self.bottleneck_conv = nn.Sequential(
-            nn.Conv3d(in_channels=in_channels, out_channels=in_channels//2, kernel_size=(1,1,1)),
-            nn.BatchNorm3d(in_channels//2),
-            nn.ReLU(inplace=True),
-            nn.Dropout3d(p=p_drop, inplace=True),
-            nn.Conv3d(in_channels=in_channels//2, out_channels=in_channels//2, kernel_size=(3,1,1), padding=(1,0,0), stride=(2,1,1)),
-            nn.Conv3d(in_channels=in_channels//2, out_channels=in_channels//2, kernel_size=(1,3,1), padding=(0,1,0), stride=(1,2,1)),
-            nn.Conv3d(in_channels=in_channels//2, out_channels=in_channels//2, kernel_size=(1,1,3), padding=(0,0,1), stride=(1,1,2)),
-            nn.BatchNorm3d(in_channels//2),
-            nn.ReLU(inplace=True),
-            nn.Dropout3d(p=p_drop, inplace=True),
-            nn.Conv3d(in_channels=in_channels//2, out_channels=out_channels, kernel_size=(1,1,1)),
-            nn.BatchNorm3d(out_channels),
-            nn.ReLU(inplace=True),
-            nn.Dropout3d(p=p_drop, inplace=True),
-        )
-        self.res_conv = nn.Sequential(
-            nn.Conv3d(in_channels=in_channels, out_channels=out_channels, kernel_size=(1,1,1), stride=(2,2,2)),
-            nn.BatchNorm3d(out_channels),
-            nn.ReLU(inplace=True),
+class depthwise_separable_conv(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel=(3,3,3), stride=(1,1,1), padding=(1,1,1)):
+        super(depthwise_separable_conv, self).__init__()
+        self.depthwise_separable_conv = nn.Sequential(
+            nn.Conv3d(in_channels, in_channels, kernel_size=kernel, stride=stride, padding=padding, groups=in_channels),
+            nn.Conv3d(in_channels, out_channels, kernel_size=(1,1,1)),
         )
     def forward(self, x):
-        return self.bottleneck_conv(x) + self.res_conv(x)
-'''
+        return self.depthwise_separable_conv(x)
+
+class depthwiseSep_bottleneck_module(nn.Module):
+    def __init__(self, in_channels, out_channels, p_drop=0.25, compress_factor=2):
+        super(depthwiseSep_bottleneck_module, self).__init__()
+        self.bottleneck_conv = nn.Sequential(
+            nn.Conv3d(in_channels=in_channels, out_channels=in_channels//compress_factor, kernel_size=(1,1,1)),
+            nn.BatchNorm3d(in_channels//compress_factor),
+            nn.ReLU(inplace=True),
+            nn.Dropout3d(p=p_drop, inplace=True),
+            depthwise_separable_conv(in_channels//compress_factor, in_channels//compress_factor),
+            nn.BatchNorm3d(in_channels//compress_factor),
+            nn.ReLU(inplace=True),
+            nn.Dropout3d(p=p_drop, inplace=True),
+            nn.Conv3d(in_channels=in_channels//compress_factor, out_channels=out_channels, kernel_size=(1,1,1)),
+            nn.BatchNorm3d(out_channels),
+            nn.ReLU(inplace=True),
+            nn.Dropout3d(p=p_drop, inplace=True),
+        )
+        if in_channels != out_channels:
+            self.res_conv = nn.Sequential(
+                nn.Conv3d(in_channels=in_channels, out_channels=out_channels, kernel_size=(1,1,1)),
+                nn.BatchNorm3d(out_channels),
+                nn.ReLU(inplace=True),
+            )
+        else:
+            self.res_conv = None
+    def forward(self, x):
+        if self.res_conv is not None:
+            return self.bottleneck_conv(x) + self.res_conv(x)
+        else:
+            return self.bottleneck_conv(x) + x
+
+class asym_depthwise_separable_conv(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel=(3,3,3), stride=(1,1,1), padding=(1,1,1)):
+        super(asym_depthwise_separable_conv, self).__init__()
+        self.asym_depthwise_separable_conv = nn.Sequential(
+            nn.Conv3d(in_channels, in_channels, kernel_size=(kernel[0],1,1), stride=(stride[0],1,1), padding=(padding[0],0,0), groups=in_channels),
+            nn.Conv3d(in_channels, in_channels, kernel_size=(1,kernel[1],1), stride=(1,stride[1],1), padding=(0,padding[1],0), groups=in_channels),
+            nn.Conv3d(in_channels, in_channels, kernel_size=(1,1,kernel[2]), stride=(1,1,stride[2]), padding=(0,0,padding[2]), groups=in_channels),
+            nn.Conv3d(in_channels, out_channels, kernel_size=(1,1,1)),
+        )
+    def forward(self, x):
+        return self.asym_depthwise_separable_conv(x)
+
+class asym_depthwiseSep_bottleneck_module(nn.Module):
+    def __init__(self, in_channels, out_channels, p_drop=0.25, compress_factor=2):
+        super(asym_depthwiseSep_bottleneck_module, self).__init__()
+        self.bottleneck_conv = nn.Sequential(
+            nn.Conv3d(in_channels=in_channels, out_channels=in_channels//compress_factor, kernel_size=(1,1,1)),
+            nn.BatchNorm3d(in_channels//compress_factor),
+            nn.ReLU(inplace=True),
+            nn.Dropout3d(p=p_drop, inplace=True),
+            asym_depthwise_separable_conv(in_channels//compress_factor, in_channels//compress_factor),
+            nn.BatchNorm3d(in_channels//compress_factor),
+            nn.ReLU(inplace=True),
+            nn.Dropout3d(p=p_drop, inplace=True),
+            nn.Conv3d(in_channels=in_channels//compress_factor, out_channels=out_channels, kernel_size=(1,1,1)),
+            nn.BatchNorm3d(out_channels),
+            nn.ReLU(inplace=True),
+            nn.Dropout3d(p=p_drop, inplace=True),
+        )
+        if in_channels != out_channels:
+            self.res_conv = nn.Sequential(
+                nn.Conv3d(in_channels=in_channels, out_channels=out_channels, kernel_size=(1,1,1)),
+                nn.BatchNorm3d(out_channels),
+                nn.ReLU(inplace=True),
+            )
+        else:
+            self.res_conv = None
+    def forward(self, x):
+        if self.res_conv is not None:
+            return self.bottleneck_conv(x) + self.res_conv(x)
+        else:
+            return self.bottleneck_conv(x) + x
+
 class bridge_module(nn.Module):
     def __init__(self, channels, layers, p_drop=0.25):
         super(bridge_module, self).__init__()

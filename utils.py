@@ -1,4 +1,5 @@
-# headHunter_utils.py
+## utils.py
+# some useful functions!
 import numpy as np
 from itertools import cycle
 import torch
@@ -33,6 +34,12 @@ def windowLevelNormalize(image, level, window):
     wld -= minval
     wld *= (1 / window)
     return wld
+
+def try_mkdir(dir_name):
+    try:
+        os.mkdir(dir_name)
+    except OSError:
+        pass
 
 def get_logger(name, level=logging.INFO):
     logger = logging.getLogger(name)

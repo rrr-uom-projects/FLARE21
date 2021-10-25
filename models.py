@@ -4,8 +4,8 @@ from collections import OrderedDict
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from model_parts import conv_module, resize_conv, bottleneck_module, asym_conv_module, asym_resize_conv, asym_bottleneck_module, bridge_module, transpose_conv, learnable_WL, bottleneck_transpose_conv, kearney_attention, asym_bottleneck_transpose_conv
-from roughSeg.utils import get_number_of_learnable_parameters
+from model_parts import conv_module, resize_conv, bottleneck_module, asym_conv_module, asym_resize_conv, asym_bottleneck_module, bridge_module, transpose_conv, learnable_WL, bottleneck_transpose_conv, kearney_attention, asym_bottleneck_transpose_conv, depthwiseSep_bottleneck_module, depthwise_separable_conv, asym_depthwiseSep_bottleneck_module, asym_depthwise_separable_conv
+from utils import get_number_of_learnable_parameters
 
 class general_model(nn.Module):
     # template class so all models inherit the load_best method
@@ -30,6 +30,81 @@ class general_model(nn.Module):
             logger.info("Loaded layers from previous best checkpoint:")
             logger.info([k for k, v in list(renamed_dict.items())])
 
+#
+## This is the model that was submitted by the MCR_RRR team for FLARE21
+#
+## Same as tiny_segmenter but using assymetric yolo in-conv
+# Parameters: 443,094 -> 435,958
+# FLOPS: 48,076,222,464 66% of tiny
+# Able to accelerate this with onnx, maybe able to run on cpu-only?
+class nano_segmenter(general_model):
+    def __init__(self, n_classes=7, in_channels=1, p_drop=0.25):
+        super(nano_segmenter, self).__init__()
+        # Input --> (in_channels, 96, 192, 192) or (in_channels, 96, 128, 128)
+        self.yolo_input_conv_1 = nn.Conv3d(in_channels=in_channels, out_channels=16, kernel_size=(7,1,1), padding=(3,0,0), stride=(2,1,1))
+        self.yolo_input_conv_2 = nn.Conv3d(in_channels=16, out_channels=16, kernel_size=(1,7,1), padding=(0,3,0), stride=(1,2,1))
+        self.yolo_input_conv_3 = nn.Conv3d(in_channels=16, out_channels=16, kernel_size=(1,1,7), padding=(0,0,3), stride=(1,1,2))
+        self.yolo_bn = nn.BatchNorm3d(16)
+        self.yolo_drop = nn.Dropout3d(p=p_drop)
+        # conv layers set 1 - down 1
+        self.down_conv_1 = asym_bottleneck_module(in_channels=16, out_channels=32, p_drop=p_drop)
+        # conv layers set 2 - down 2
+        self.down_conv_2 = asym_bottleneck_module(in_channels=32, out_channels=64, p_drop=p_drop)
+        # conv layers set 3 - down 3
+        self.down_conv_3 = asym_bottleneck_module(in_channels=64, out_channels=128, p_drop=p_drop, compress_factor=4)
+        # conv layers set 4 - base
+        self.base_conv = asym_bottleneck_module(in_channels=128, out_channels=256, p_drop=p_drop, compress_factor=4)
+        # upsample convolution and up set 1
+        self.upsample_1 = bottleneck_transpose_conv(in_channels=256, out_channels=256, p_drop=p_drop, compress_factor=4)
+        self.up_conv_1 = asym_bottleneck_module(in_channels=128+256, out_channels=128, p_drop=p_drop, compress_factor=4)
+        # upsample 2 and up 2
+        self.upsample_2 = bottleneck_transpose_conv(in_channels=128, out_channels=128, p_drop=p_drop, compress_factor=4)
+        self.up_conv_2 = asym_bottleneck_module(in_channels=64+128, out_channels=64, p_drop=p_drop, compress_factor=4)
+        # upsample and up 3
+        self.upsample_3 = bottleneck_transpose_conv(in_channels=64, out_channels=64, p_drop=p_drop, compress_factor=4)
+        self.up_conv_3 = asym_bottleneck_module(in_channels=32+64, out_channels=32, p_drop=p_drop)
+        # upsample 4 and prediction convolution
+        self.upsample_4 = bottleneck_transpose_conv(in_channels=32, out_channels=32, p_drop=p_drop, scale_factor=(2,2,2))
+        self.up_conv_4 = asym_bottleneck_module(in_channels=32, out_channels=32, p_drop=p_drop)
+        self.pred = nn.Conv3d(in_channels=32, out_channels=int(n_classes), kernel_size=1)
+
+    @torch.cuda.amp.autocast()
+    def forward(self, x):
+        # yolo conv
+        x = self.yolo_input_conv_3(self.yolo_input_conv_2(self.yolo_input_conv_1(x)))
+        x = F.relu(self.yolo_bn(x))
+        x = self.yolo_drop(x)
+        # Down block 1
+        down1 = self.down_conv_1(x) 
+        x = F.max_pool3d(down1, (2,2,2))
+        # Down block 2
+        down2 = self.down_conv_2(x)
+        x = F.max_pool3d(down2, (2,2,2))
+        # Down block 3
+        down3 = self.down_conv_3(x)
+        x = F.max_pool3d(down3, (2,2,2))
+        # Base block
+        x = self.base_conv(x)
+        # Upsample and up block 1
+        x = self.upsample_1(x)
+        x = torch.cat((x, down3), dim=1)
+        x = self.up_conv_1(x)
+        # Upsample 2 and up block 2
+        x = self.upsample_2(x)
+        x = torch.cat((x, down2), dim=1)
+        x = self.up_conv_2(x)
+        # Upsample 3
+        x = self.upsample_3(x)
+        x = torch.cat((x, down1), dim=1)
+        x = self.up_conv_3(x)
+        # Upsample 4 and predict
+        x = self.upsample_4(x)
+        x = self.up_conv_4(x)
+        return self.pred(x)
+
+#
+##  Below are all the models produced in development up-to and a little beyond our submitted model "nano_segmenter"
+#
 # Basic model: Unet-like with residula connections and increased input size: (96, 192, 192)
 # Parameters: 8,272,487
 # Achieves > 0.95 DSC on all but pancreas (~0.8)
@@ -813,76 +888,11 @@ class tiny_segmenter(general_model):
         x = self.up_conv_4(x)
         return self.pred(x)
 
+####
 
-## Same as tiny_segmenter but using assymetric yolo in-conv
-# Parameters: 443,094 -> 435,958
-# FLOPS: 48,076,222,464 66% of tiny
-# Able to accelerate this with onnx, maybe able to run on cpu-only?
-class nano_segmenter(general_model):
-    def __init__(self, n_classes=7, in_channels=1, p_drop=0.25):
-        super(nano_segmenter, self).__init__()
-        # Input --> (in_channels, 96, 192, 192) or (in_channels, 96, 128, 128)
-        self.yolo_input_conv_1 = nn.Conv3d(in_channels=in_channels, out_channels=16, kernel_size=(7,1,1), padding=(3,0,0), stride=(2,1,1))
-        self.yolo_input_conv_2 = nn.Conv3d(in_channels=16, out_channels=16, kernel_size=(1,7,1), padding=(0,3,0), stride=(1,2,1))
-        self.yolo_input_conv_3 = nn.Conv3d(in_channels=16, out_channels=16, kernel_size=(1,1,7), padding=(0,0,3), stride=(1,1,2))
-        self.yolo_bn = nn.BatchNorm3d(16)
-        self.yolo_drop = nn.Dropout3d(p=p_drop)
-        # conv layers set 1 - down 1
-        self.down_conv_1 = asym_bottleneck_module(in_channels=16, out_channels=32, p_drop=p_drop)
-        # conv layers set 2 - down 2
-        self.down_conv_2 = asym_bottleneck_module(in_channels=32, out_channels=64, p_drop=p_drop)
-        # conv layers set 3 - down 3
-        self.down_conv_3 = asym_bottleneck_module(in_channels=64, out_channels=128, p_drop=p_drop, compress_factor=4)
-        # conv layers set 4 - base
-        self.base_conv = asym_bottleneck_module(in_channels=128, out_channels=256, p_drop=p_drop, compress_factor=4)
-        # upsample convolution and up set 1
-        self.upsample_1 = bottleneck_transpose_conv(in_channels=256, out_channels=256, p_drop=p_drop, compress_factor=4)
-        self.up_conv_1 = asym_bottleneck_module(in_channels=128+256, out_channels=128, p_drop=p_drop, compress_factor=4)
-        # upsample 2 and up 2
-        self.upsample_2 = bottleneck_transpose_conv(in_channels=128, out_channels=128, p_drop=p_drop, compress_factor=4)
-        self.up_conv_2 = asym_bottleneck_module(in_channels=64+128, out_channels=64, p_drop=p_drop, compress_factor=4)
-        # upsample and up 3
-        self.upsample_3 = bottleneck_transpose_conv(in_channels=64, out_channels=64, p_drop=p_drop, compress_factor=4)
-        self.up_conv_3 = asym_bottleneck_module(in_channels=32+64, out_channels=32, p_drop=p_drop)
-        # upsample 4 and prediction convolution
-        self.upsample_4 = bottleneck_transpose_conv(in_channels=32, out_channels=32, p_drop=p_drop, scale_factor=(2,2,2))
-        self.up_conv_4 = asym_bottleneck_module(in_channels=32, out_channels=32, p_drop=p_drop)
-        self.pred = nn.Conv3d(in_channels=32, out_channels=int(n_classes), kernel_size=1)
+# nano_segmenter was 'ere
 
-    @torch.cuda.amp.autocast()
-    def forward(self, x):
-        # yolo conv
-        x = self.yolo_input_conv_3(self.yolo_input_conv_2(self.yolo_input_conv_1(x)))
-        x = F.relu(self.yolo_bn(x))
-        x = self.yolo_drop(x)
-        # Down block 1
-        down1 = self.down_conv_1(x) 
-        x = F.max_pool3d(down1, (2,2,2))
-        # Down block 2
-        down2 = self.down_conv_2(x)
-        x = F.max_pool3d(down2, (2,2,2))
-        # Down block 3
-        down3 = self.down_conv_3(x)
-        x = F.max_pool3d(down3, (2,2,2))
-        # Base block
-        x = self.base_conv(x)
-        # Upsample and up block 1
-        x = self.upsample_1(x)
-        x = torch.cat((x, down3), dim=1)
-        x = self.up_conv_1(x)
-        # Upsample 2 and up block 2
-        x = self.upsample_2(x)
-        x = torch.cat((x, down2), dim=1)
-        x = self.up_conv_2(x)
-        # Upsample 3
-        x = self.upsample_3(x)
-        x = torch.cat((x, down1), dim=1)
-        x = self.up_conv_3(x)
-        # Upsample 4 and predict
-        x = self.upsample_4(x)
-        x = self.up_conv_4(x)
-        return self.pred(x)
-
+####
 
 ## Same as tiny_segmenter but using attention?
 # Parameters: 443,094 -> 524,775
@@ -1094,3 +1104,71 @@ class tiny_attention_deepsup_segmenter(general_model):
         x = self.upsample_4(x)
         x = self.up_conv_4(x)
         return self.pred(torch.cat((x, deep3, deep2, deep1), dim=1))
+
+
+## Apply depthwise separable convs -> v slow to train, but speedy CPU inference?
+# Parameters: 435,958 -> 315,702 (310,582 for asym)
+# FLOPS: 48,076,222,464 -> 30,642,914,304 (28,839,545,856 for asym)
+# 
+class pico_segmenter(general_model):
+    def __init__(self, n_classes=7, in_channels=1, p_drop=0.25):
+        super(pico_segmenter, self).__init__()
+        # Input --> (in_channels, 96, 192, 192) or (in_channels, 96, 128, 128)
+        self.depthwise_yolo = depthwise_separable_conv(in_channels=in_channels, out_channels=16, kernel=(7,7,7), stride=(2,2,2), padding=(3,3,3))
+        self.yolo_bn = nn.BatchNorm3d(16)
+        self.yolo_drop = nn.Dropout3d(p=p_drop)
+        # conv layers set 1 - down 1
+        self.down_conv_1 = depthwiseSep_bottleneck_module(in_channels=16, out_channels=32, p_drop=p_drop)
+        # conv layers set 2 - down 2
+        self.down_conv_2 = depthwiseSep_bottleneck_module(in_channels=32, out_channels=64, p_drop=p_drop)
+        # conv layers set 3 - down 3
+        self.down_conv_3 = depthwiseSep_bottleneck_module(in_channels=64, out_channels=128, p_drop=p_drop, compress_factor=4)
+        # conv layers set 4 - base
+        self.base_conv = depthwiseSep_bottleneck_module(in_channels=128, out_channels=256, p_drop=p_drop, compress_factor=4)
+        # upsample convolution and up set 1
+        self.upsample_1 = bottleneck_transpose_conv(in_channels=256, out_channels=256, p_drop=p_drop, compress_factor=4)
+        self.up_conv_1 = depthwiseSep_bottleneck_module(in_channels=128+256, out_channels=128, p_drop=p_drop, compress_factor=4)
+        # upsample 2 and up 2
+        self.upsample_2 = bottleneck_transpose_conv(in_channels=128, out_channels=128, p_drop=p_drop, compress_factor=4)
+        self.up_conv_2 = depthwiseSep_bottleneck_module(in_channels=64+128, out_channels=64, p_drop=p_drop, compress_factor=4)
+        # upsample and up 3
+        self.upsample_3 = bottleneck_transpose_conv(in_channels=64, out_channels=64, p_drop=p_drop, compress_factor=4)
+        self.up_conv_3 = depthwiseSep_bottleneck_module(in_channels=32+64, out_channels=32, p_drop=p_drop)
+        # upsample 4 and prediction convolution
+        self.upsample_4 = bottleneck_transpose_conv(in_channels=32, out_channels=32, p_drop=p_drop, scale_factor=(2,2,2))
+        self.up_conv_4 = depthwiseSep_bottleneck_module(in_channels=32, out_channels=32, p_drop=p_drop)
+        self.pred = nn.Conv3d(in_channels=32, out_channels=int(n_classes), kernel_size=1)
+
+    @torch.cuda.amp.autocast()
+    def forward(self, x):
+        # yolo conv
+        x = self.depthwise_yolo(x)
+        x = F.relu(self.yolo_bn(x))
+        x = self.yolo_drop(x)
+        # Down block 1
+        down1 = self.down_conv_1(x) 
+        x = F.max_pool3d(down1, (2,2,2))
+        # Down block 2
+        down2 = self.down_conv_2(x)
+        x = F.max_pool3d(down2, (2,2,2))
+        # Down block 3
+        down3 = self.down_conv_3(x)
+        x = F.max_pool3d(down3, (2,2,2))
+        # Base block
+        x = self.base_conv(x)
+        # Upsample and up block 1
+        x = self.upsample_1(x)
+        x = torch.cat((x, down3), dim=1)
+        x = self.up_conv_1(x)
+        # Upsample 2 and up block 2
+        x = self.upsample_2(x)
+        x = torch.cat((x, down2), dim=1)
+        x = self.up_conv_2(x)
+        # Upsample 3
+        x = self.upsample_3(x)
+        x = torch.cat((x, down1), dim=1)
+        x = self.up_conv_3(x)
+        # Upsample 4 and predict
+        x = self.upsample_4(x)
+        x = self.up_conv_4(x)
+        return self.pred(x)

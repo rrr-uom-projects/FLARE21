@@ -24,7 +24,6 @@ ViT/model/__pycache__/*
 __pycache__/*
 /ONNX/*.onnx
 preprocessing_bits.ipynb
-roughSeg/check_missing_labels.ipynb
 __pycache__/model_archive.cpython-38.pyc
 *.json
 resampling.py
@@ -35,3 +34,9 @@ resampling.py
 
 *__pycache__*
 *.nii.gz
+archive/roughSeg/check_missing_labels.ipynb
+
+notebooks/
+archive/check_segs.ipynb
+archive/roughSeg/check_bboxes.ipynb
+headHunter_bits/
