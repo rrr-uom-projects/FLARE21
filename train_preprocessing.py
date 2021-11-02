@@ -15,11 +15,12 @@ from utils import getFiles, try_mkdir
 import os
 from tqdm import tqdm
 
-imdir = "/data/AbdomenCT-1K/Image/"                     # DIRECTORY PATH TO SETUP
-maskdir = "/data/AbdomenCT-1K/Mask/"                    # DIRECTORY PATH TO SETUP
-out_dir = "/data/FLARE21/AbdomenCT-1K_training_data/"   # DIRECTORY PATH TO SETUP
+imdir = "/data/FLARE_datasets/AbdomenCT-1K/Image/"                  # DIRECTORY PATH TO SETUP
+maskdir = "/data/FLARE_datasets/AbdomenCT-1K/Mask/"                 # DIRECTORY PATH TO SETUP
+tumordir = "/data/FLARE_datasets/AbdomenCT-1K-TumorSubset/"         # DIRECTORY PATH TO SETUP
+out_dir = "/data/FLARE21/AbdomenCT-1K_training_data/"               # DIRECTORY PATH TO SETUP
 out_imdir = os.path.join(out_dir, "scaled_ims/")
-out_maskdir = os.path.join(out_dir, "scaled_masks/")
+out_maskdir = os.path.join(out_dir, "scaled_masks_w_tumors/")
 
 out_resolution = (96,192,192)
 
@@ -30,38 +31,29 @@ try_mkdir(out_maskdir)
 
 # OARs : 1 - Liver, 2 - Kidneys, 3 - Spleen, 4 - Pancreas
 # IMPORTANT! : sitk_image.GetDirection()[-1] -> (1 or -1) -> flip cranio-caudally if -1
-# Output: OAR labels : 1- Body, 2 - Liver, 3 - Kidneys , 4 - Spleen, 5 - Pancreas
+# Output: OAR labels : 1- Body, 2 - Liver, 3 - Kidneys , 4 - Spleen, 5 - Pancreas, 6 - tumours
 
-startn = 800
-stopn = 1000
-
-fnames = sorted(getFiles(maskdir))[startn:stopn]
+fnames = sorted(getFiles(tumordir))
 n_images = len(fnames)
-print(f"n_images: {n_images}")
-
-sizes_scaled = np.zeros((n_images, 3))
-spacings_scaled = np.zeros((n_images, 3))
-labels_present = np.empty(shape=(n_images, 4), dtype=bool)
-label_freq = np.zeros((6))
+label_freq = np.zeros((7))
 for pdx, fname in enumerate(tqdm(fnames)):
     # load files
-    #print(f"Processing {fname.replace('_0000.nii.gz','')}")
-    sitk_im = sitk.ReadImage(os.path.join(imdir, fname.replace('.nii.gz','_0000.nii.gz')))
-    im = sitk.GetArrayFromImage(sitk_im)
     sitk_mask = sitk.ReadImage(os.path.join(maskdir, fname))
     mask = sitk.GetArrayFromImage(sitk_mask).astype(float)
+    sitk_tumormask = sitk.ReadImage(os.path.join(tumordir, fname))
+    tumormask = sitk.GetArrayFromImage(sitk_tumormask).astype(float)
 
     # check if flip required
-    if sitk_im.GetDirection()[-1] == -1:
+    if sitk_mask.GetDirection()[-1] == -1:
         print("Image upside down, CC flip required!")
-        im = np.flip(im, axis=0)        # flip CC
-        im = np.flip(im, axis=2)        # flip LR --> this works, should be made more robust though (with sitk cosine matrix)
-        mask = np.flip(mask, axis=0)
-        mask = np.flip(mask, axis=2)
+        mask = np.flip(mask, axis=0).copy()
+        mask = np.flip(mask, axis=2).copy()
+        tumormask = np.flip(tumormask, axis=0).copy()
+        tumormask = np.flip(tumormask, axis=2).copy()
 
     # use id body to generate body delineation too
     # threshold
-    body_mask = np.zeros_like(im)
+    body_mask = np.zeros_like(mask)
     body_inds = im > -200
     body_mask[body_inds] += 1
 
@@ -83,11 +75,12 @@ for pdx, fname in enumerate(tqdm(fnames)):
     body_mask[labelled_inds] = 0
     mask += body_mask
 
-    # identify missing labels
-    labels_present[pdx] = np.array([(mask==oar_label).any() for oar_label in range(2,6)])
+    ### Add in the tumor labels
+
+
     
     # resample all images to common size
-    spacing = np.array(sitk_im.GetSpacing())
+    spacing = np.array(sitk_mask.GetSpacing())
     size = np.array(im.shape)
     scale_factor = np.array(out_resolution) / size
     im = resize(im, output_shape=out_resolution, order=3, anti_aliasing=True, preserve_range=True).astype(np.float16)
@@ -112,7 +105,5 @@ for pdx, fname in enumerate(tqdm(fnames)):
         label_freq[odx] += (mask==odx).sum()
 
 # save newly scaled spacings and sizes
-np.save(os.path.join(out_dir, f"spacings_scaled_{startn}_{stopn}.npy"), spacings_scaled)
-np.save(os.path.join(out_dir, f"labels_present_{startn}_{stopn}.npy"), labels_present)
 print(label_freq)
-np.save(os.path.join(out_dir, f"label_freq_{startn}_{stopn}.npy"), label_freq)
+np.save(os.path.join(out_dir, f"label_freq_w_tumors.npy"), label_freq)
