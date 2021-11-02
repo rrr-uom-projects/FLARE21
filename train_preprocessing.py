@@ -15,8 +15,8 @@ from utils import getFiles, try_mkdir
 import os
 from tqdm import tqdm
 
-imdir = "/data/AbdomenCT-1K/Image/"                     # DIRECTORY PATH TO SETUP
-maskdir = "/data/AbdomenCT-1K/Mask/"                    # DIRECTORY PATH TO SETUP
+imdir = "/data/FLARE_datasets/AbdomenCT-1K/Image/"      # DIRECTORY PATH TO SETUP
+maskdir = "/data/FLARE_datasets/AbdomenCT-1K/Mask/"     # DIRECTORY PATH TO SETUP
 out_dir = "/data/FLARE21/AbdomenCT-1K_training_data/"   # DIRECTORY PATH TO SETUP
 out_imdir = os.path.join(out_dir, "scaled_ims/")
 out_maskdir = os.path.join(out_dir, "scaled_masks/")
