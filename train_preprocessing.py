@@ -15,12 +15,11 @@ from utils import getFiles, try_mkdir
 import os
 from tqdm import tqdm
 
-imdir = "/data/FLARE_datasets/AbdomenCT-1K/Image/"                  # DIRECTORY PATH TO SETUP
-maskdir = "/data/FLARE_datasets/AbdomenCT-1K/Mask/"                 # DIRECTORY PATH TO SETUP
-tumordir = "/data/FLARE_datasets/AbdomenCT-1K-TumorSubset/"         # DIRECTORY PATH TO SETUP
+imdir = "/data/FLARE_datasets/AbdomenCT-1K-12-Organ-Subset/Image/"  # DIRECTORY PATH TO SETUP
+maskdir = "/data/FLARE_datasets/AbdomenCT-1K-12-Organ-Subset/Mask/" # DIRECTORY PATH TO SETUP
 out_dir = "/data/FLARE21/AbdomenCT-1K_training_data/"               # DIRECTORY PATH TO SETUP
-out_imdir = os.path.join(out_dir, "scaled_ims/")
-out_maskdir = os.path.join(out_dir, "scaled_masks_w_tumors/")
+out_imdir = os.path.join(out_dir, "scaled_12_organ_ims/")
+out_maskdir = os.path.join(out_dir, "scaled_12_organ_masks/")
 
 out_resolution = (96,192,192)
 
@@ -29,59 +28,19 @@ try_mkdir(out_dir)
 try_mkdir(out_imdir)
 try_mkdir(out_maskdir)
 
-# OARs : 1 - Liver, 2 - Kidneys, 3 - Spleen, 4 - Pancreas
+# OARs : 1 - Liver, 2 - Kidneys, 3 - Spleen, 4 - Pancreas, 5 - Aorta, 6 - Inf vena cava, 7 - Stomach, 8 - Gallbladder, 9 - Esophagus, 10 - R adrenal gland, 11 - L adrenal gland, 12 - Celiac trunk
 # IMPORTANT! : sitk_image.GetDirection()[-1] -> (1 or -1) -> flip cranio-caudally if -1
-# Output: OAR labels : 1- Body, 2 - Liver, 3 - Kidneys , 4 - Spleen, 5 - Pancreas, 6 - tumours
+# Output: OAR labels : 1- Body, 2 - Liver, 3 - Kidneys, 4 - Spleen, 5 - Pancreas, 6 - Aorta, 7 - Inf vena cava, 8 - Stomach, 9 - Gallbladder, 10 - Esophagus, 11 - R adrenal gland, 12 - L adrenal gland, 13 - Celiac trunk
 
-fnames = sorted(getFiles(tumordir))
+fnames = sorted(getFiles(maskdir))
 n_images = len(fnames)
-label_freq = np.zeros((7))
+label_freq = np.zeros((14))
 for pdx, fname in enumerate(tqdm(fnames)):
     # load files
     sitk_im = sitk.ReadImage(os.path.join(imdir, fname.replace('.nii.gz','_0000.nii.gz')))
     im = sitk.GetArrayFromImage(sitk_im)
-    try:
-        sitk_mask = sitk.ReadImage(os.path.join(maskdir, fname))
-    except RuntimeError:
-        print(f"Skipping {fname}")
-        continue
+    sitk_mask = sitk.ReadImage(os.path.join(maskdir, fname))
     mask = sitk.GetArrayFromImage(sitk_mask).astype(float)
-    sitk_tumormask = sitk.ReadImage(os.path.join(tumordir, fname))
-    tumormask = sitk.GetArrayFromImage(sitk_tumormask).astype(float)
-
-    try:
-        assert(sitk_mask.GetSize() == sitk_tumormask.GetSize())
-    except AssertionError:
-        print(f"{fname} size AssertionError")
-        print(f"     mask size = {sitk_mask.GetSize()}\ntumormask size = {sitk_tumormask.GetSize()}")
-        print(f"     mask direction = {sitk_mask.GetDirection()}\ntumormask direction = {sitk_tumormask.GetDirection()}")
-        print(f"     mask spacing = {sitk_mask.GetSpacing()}\ntumormask spacing = {sitk_tumormask.GetSpacing()}")
-        if input("accept? (y/n): ") == 'y':
-            pass
-        else:
-            exit(1)
-    try:
-        assert((np.round(np.array(sitk_mask.GetDirection()), 0) == np.round(np.array(sitk_tumormask.GetDirection()), 0)).all())
-    except AssertionError:
-        print(f"{fname} direction AssertionError")
-        print(f"     mask size = {sitk_mask.GetSize()}\ntumormask size = {sitk_tumormask.GetSize()}")
-        print(f"     mask direction = {sitk_mask.GetDirection()}\ntumormask direction = {sitk_tumormask.GetDirection()}")
-        print(f"     mask spacing = {sitk_mask.GetSpacing()}\ntumormask spacing = {sitk_tumormask.GetSpacing()}")
-        if input("accept? (y/n): ") == 'y':
-            pass
-        else:
-            exit(1)
-    try:
-        assert((np.round(np.array(sitk_mask.GetSpacing()), 3) == np.round(np.array(sitk_tumormask.GetSpacing()), 3)).all())
-    except AssertionError:
-        print(f"{fname} spacing AssertionError")
-        print(f"     mask size = {sitk_mask.GetSize()}\ntumormask size = {sitk_tumormask.GetSize()}")
-        print(f"     mask direction = {sitk_mask.GetDirection()}\ntumormask direction = {sitk_tumormask.GetDirection()}")
-        print(f"     mask spacing = {sitk_mask.GetSpacing()}\ntumormask spacing = {sitk_tumormask.GetSpacing()}")
-        if input("accept? (y/n): ") == 'y':
-            pass
-        else:
-            exit(1)
 
     # check if flip required
     if sitk_mask.GetDirection()[-1] == -1:
@@ -90,8 +49,6 @@ for pdx, fname in enumerate(tqdm(fnames)):
         im = np.flip(im, axis=2).copy()
         mask = np.flip(mask, axis=0).copy()
         mask = np.flip(mask, axis=2).copy()
-        tumormask = np.flip(tumormask, axis=0).copy()
-        tumormask = np.flip(tumormask, axis=2).copy()
 
     # use id body to generate body delineation too
     # threshold
@@ -117,21 +74,23 @@ for pdx, fname in enumerate(tqdm(fnames)):
     body_mask[labelled_inds] = 0
     mask += body_mask
 
-    ### Add in the tumor labels -> overwrite whatever's already there with the tumour label: 6
-    mask[tumormask == 1] = 6
-
     # resample all images to common size
     size = np.array(im.shape)
     scale_factor = np.array(out_resolution) / size
+    im = resize(im, output_shape=out_resolution, order=3, anti_aliasing=True, preserve_range=True).astype(np.float16)
     mask = np.round(resize(mask, output_shape=out_resolution, order=0, anti_aliasing=False, preserve_range=True)).astype(np.uint8)
+    
+    # finally clip intensity range (true HU - not Wm HU)
+    im = np.clip(im, -1024, 2000)
 
     # output
+    np.save(os.path.join(out_imdir, fname.replace('.nii.gz','.npy')), im)
     np.save(os.path.join(out_maskdir, fname.replace('.nii.gz','.npy')), mask)
 
     # add label freqs
-    for odx in range(7):
+    for odx in range(14):
         label_freq[odx] += (mask==odx).sum()
 
 # save newly scaled spacings and sizes
 print(label_freq)
-np.save(os.path.join(out_dir, f"label_freq_w_tumors.npy"), label_freq)
+np.save(os.path.join(out_dir, f"label_freq_12organ.npy"), label_freq)
