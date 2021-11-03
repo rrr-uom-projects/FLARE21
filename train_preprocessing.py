@@ -38,14 +38,56 @@ n_images = len(fnames)
 label_freq = np.zeros((7))
 for pdx, fname in enumerate(tqdm(fnames)):
     # load files
-    sitk_mask = sitk.ReadImage(os.path.join(maskdir, fname))
+    sitk_im = sitk.ReadImage(os.path.join(imdir, fname.replace('.nii.gz','_0000.nii.gz')))
+    im = sitk.GetArrayFromImage(sitk_im)
+    try:
+        sitk_mask = sitk.ReadImage(os.path.join(maskdir, fname))
+    except RuntimeError:
+        print(f"Skipping {fname}")
+        continue
     mask = sitk.GetArrayFromImage(sitk_mask).astype(float)
     sitk_tumormask = sitk.ReadImage(os.path.join(tumordir, fname))
     tumormask = sitk.GetArrayFromImage(sitk_tumormask).astype(float)
 
+    try:
+        assert(sitk_mask.GetSize() == sitk_tumormask.GetSize())
+    except AssertionError:
+        print(f"{fname} size AssertionError")
+        print(f"     mask size = {sitk_mask.GetSize()}\ntumormask size = {sitk_tumormask.GetSize()}")
+        print(f"     mask direction = {sitk_mask.GetDirection()}\ntumormask direction = {sitk_tumormask.GetDirection()}")
+        print(f"     mask spacing = {sitk_mask.GetSpacing()}\ntumormask spacing = {sitk_tumormask.GetSpacing()}")
+        if input("accept? (y/n): ") == 'y':
+            pass
+        else:
+            exit(1)
+    try:
+        assert(sitk_mask.GetDirection() == sitk_tumormask.GetDirection())
+    except AssertionError:
+        print(f"{fname} direction AssertionError")
+        print(f"     mask size = {sitk_mask.GetSize()}\ntumormask size = {sitk_tumormask.GetSize()}")
+        print(f"     mask direction = {sitk_mask.GetDirection()}\ntumormask direction = {sitk_tumormask.GetDirection()}")
+        print(f"     mask spacing = {sitk_mask.GetSpacing()}\ntumormask spacing = {sitk_tumormask.GetSpacing()}")
+        if input("accept? (y/n): ") == 'y':
+            pass
+        else:
+            exit(1)
+    try:
+        assert(sitk_mask.GetSpacing() == sitk_tumormask.GetSpacing())
+    except AssertionError:
+        print(f"{fname} spacing AssertionError")
+        print(f"     mask size = {sitk_mask.GetSize()}\ntumormask size = {sitk_tumormask.GetSize()}")
+        print(f"     mask direction = {sitk_mask.GetDirection()}\ntumormask direction = {sitk_tumormask.GetDirection()}")
+        print(f"     mask spacing = {sitk_mask.GetSpacing()}\ntumormask spacing = {sitk_tumormask.GetSpacing()}")
+        if input("accept? (y/n): ") == 'y':
+            pass
+        else:
+            exit(1)
+
     # check if flip required
     if sitk_mask.GetDirection()[-1] == -1:
         print("Image upside down, CC flip required!")
+        im = np.flip(im, axis=0).copy()
+        im = np.flip(im, axis=2).copy()
         mask = np.flip(mask, axis=0).copy()
         mask = np.flip(mask, axis=2).copy()
         tumormask = np.flip(tumormask, axis=0).copy()
@@ -53,7 +95,7 @@ for pdx, fname in enumerate(tqdm(fnames)):
 
     # use id body to generate body delineation too
     # threshold
-    body_mask = np.zeros_like(mask)
+    body_mask = np.zeros_like(im)
     body_inds = im > -200
     body_mask[body_inds] += 1
 
@@ -75,34 +117,16 @@ for pdx, fname in enumerate(tqdm(fnames)):
     body_mask[labelled_inds] = 0
     mask += body_mask
 
-    ### Add in the tumor labels
+    ### Add in the tumor labels -> overwrite whatever's already there with the tumour label: 6
+    mask[tumormask == 1] = 6
 
-
-    
     # resample all images to common size
-    spacing = np.array(sitk_mask.GetSpacing())
     size = np.array(im.shape)
     scale_factor = np.array(out_resolution) / size
-    im = resize(im, output_shape=out_resolution, order=3, anti_aliasing=True, preserve_range=True).astype(np.float16)
     mask = np.round(resize(mask, output_shape=out_resolution, order=0, anti_aliasing=False, preserve_range=True)).astype(np.uint8)
-    
-    # rescale spacings
-    spacing /= scale_factor[[2,1,0]]
-    
-    # lil bit of output
-    #print(f"Rescaling, factor: {scale_factor}, new spacing {spacing} ...")
-
-    # finally clip intensity range (true HU - not Wm HU)
-    im = np.clip(im, -1024, 2000)
 
     # output
-    np.save(os.path.join(out_imdir, fname.replace('.nii.gz','.npy')), im)
     np.save(os.path.join(out_maskdir, fname.replace('.nii.gz','.npy')), mask)
-
-    # extras
-    spacings_scaled[pdx] = spacing
-    for odx in range(6):
-        label_freq[odx] += (mask==odx).sum()
 
 # save newly scaled spacings and sizes
 print(label_freq)
