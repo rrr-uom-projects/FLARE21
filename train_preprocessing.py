@@ -128,6 +128,10 @@ for pdx, fname in enumerate(tqdm(fnames)):
     # output
     np.save(os.path.join(out_maskdir, fname.replace('.nii.gz','.npy')), mask)
 
+    # add label freqs
+    for odx in range(7):
+        label_freq[odx] += (mask==odx).sum()
+
 # save newly scaled spacings and sizes
 print(label_freq)
 np.save(os.path.join(out_dir, f"label_freq_w_tumors.npy"), label_freq)
