@@ -22,7 +22,7 @@ import argparse as ap
 
 from models import nano_segmenter
 from trainer import segmenter_trainer
-from utils import k_fold_split_train_val_test, get_logger, get_number_of_learnable_parameters, getFiles, windowLevelNormalize
+from utils import k_fold_split_train_val, get_logger, get_number_of_learnable_parameters, getFiles, windowLevelNormalize
 
 source_dir =  "/data/FLARE21/AbdomenCT-1K_training_data/" # DIRECTORY PATH TO SETUP -> this should be the same as "out_dir" in train_preprocessing.py
 input_size = (96,192,192)
@@ -39,16 +39,16 @@ def main():
     global args
 
     # set directories
-    checkpoint_dir = "/data/FLARE21/models/AbdomenCT-1K/nano_segmenter_192/fold"+str(args.fold_num) # DIRECTORY PATH TO SETUP
+    checkpoint_dir = "/data/FLARE21/models/AbdomenCT-1K_tumor/nano_segmenter_192/" # DIRECTORY PATH TO SETUP
     imagedir = os.path.join(source_dir, "scaled_ims/")
-    maskdir = os.path.join(source_dir, "scaled_masks/")
+    maskdir = os.path.join(source_dir, "scaled_masks_w_tumors/")
 
     # Create main logger
     logger = get_logger('COBRA_Training')
 
     # Create the model
-    # labels: 0 - air, 1 - body, 2 - liver, 3 - kidneys, 4 - spleen, 5 - pancreas
-    n_classes = 6
+    # labels: 0 - air, 1 - body, 2 - liver, 3 - kidneys, 4 - spleen, 5 - pancreas, 6 - tumours
+    n_classes = 7
     model = nano_segmenter(n_classes=n_classes, in_channels=2, p_drop=0)
 
     for param in model.parameters():
@@ -66,12 +66,12 @@ def main():
     val_workers = int(4)
 
     # allocate ims to train, val and test
-    dataset_size = len(sorted(getFiles(imagedir)))
-    train_inds, val_inds, test_inds = k_fold_split_train_val_test(dataset_size, fold_num=args.fold_num, seed=230597)
-    print(len(train_inds), len(val_inds), len(test_inds))
+    dataset_size = len(sorted(getFiles(maskdir)))
+    train_inds, val_inds = k_fold_split_train_val(dataset_size, seed=230597)
+    print(len(train_inds), len(val_inds))
 
     # get label frequencies for weighted loss fns
-    label_freq = np.load(os.path.join(source_dir, "label_freq.npy"))
+    label_freq = np.load(os.path.join(source_dir, "label_freq_w_tumors.npy"))
 
     # Create them dataloaders
     train_data = segmenter_dataset(imagedir=imagedir, maskdir=maskdir, image_inds=train_inds, n_classes=n_classes, shift_augment=True, rotate_augment=True, scale_augment=True, flip_augment=False)
@@ -99,7 +99,7 @@ class segmenter_dataset(data.Dataset):
     def __init__(self, imagedir, maskdir, image_inds, n_classes, shift_augment=True, rotate_augment=True, scale_augment=True, flip_augment=False):
         self.imagedir = imagedir
         self.maskdir = maskdir
-        self.availableImages = [sorted(getFiles(imagedir))[ind] for ind in image_inds]
+        self.availableImages = [sorted(getFiles(maskdir))[ind] for ind in image_inds]
         self.image_inds = image_inds
         self.n_classes = n_classes
         self.shifts = shift_augment
