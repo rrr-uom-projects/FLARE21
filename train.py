@@ -39,7 +39,7 @@ def main():
     global args
 
     # set directories
-    checkpoint_dir = "/data/FLARE21/models/AbdomenCT-1K_tumor/nano_segmenter_192/" # DIRECTORY PATH TO SETUP
+    checkpoint_dir = "/data/FLARE21/models/AbdomenCT-1K_tumor/" # DIRECTORY PATH TO SETUP
     imagedir = os.path.join(source_dir, "scaled_ims/")
     maskdir = os.path.join(source_dir, "scaled_masks_w_tumors/")
 
