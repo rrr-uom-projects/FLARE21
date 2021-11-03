@@ -14,7 +14,7 @@ nii_source_dir = "/data/AbdomenCT-1K/"
 npy_source_dir = "/data/FLARE21/AbdomenCT-1K_training_data/"
 image_dir = "/data/FLARE21/AbdomenCT-1K_training_data/scaled_ims/"
 mask_dir = "/data/FLARE21/AbdomenCT-1K_training_data/scaled_masks/"
-output_dir = "/data/FLARE21/results/AbdomenCT-1K_tumor/"
+output_dir = "/data/FLARE21/results/AbdomenCT-1K_12organ/"
 input_size = (96,192,192)
 
 organs = ["liver", "kidneys", "spleen", "pancreas"]
@@ -37,13 +37,13 @@ def main():
         pass
 
     # Create the model
-    model = nano_segmenter(n_classes=7, in_channels=2, p_drop=0) #, initial_levels=[1,1,1], initial_windows=[1,1,1]
+    model = nano_segmenter(n_classes=14, in_channels=2, p_drop=0) #, initial_levels=[1,1,1], initial_windows=[1,1,1]
 
     # put the model on GPU
     model.to('cuda')
 
     # get checkpoint dir
-    checkpoint_dir = f"/data/FLARE21/models/AbdomenCT-1K_tumor/"
+    checkpoint_dir = f"/data/FLARE21/models/AbdomenCT-1K_12organ/"
 
     # load in the best model version
     model.load_best(checkpoint_dir, logger)
@@ -55,7 +55,7 @@ def main():
 
     # get test fnames
     all_fnames = sorted(getFiles(mask_dir))
-    test_fnames = list(filter(lambda fname: fname not in sorted(getFiles("/data/FLARE21/AbdomenCT-1K_training_data/scaled_masks_w_tumors/")), all_fnames))
+    test_fnames = list(filter(lambda fname: fname not in sorted(getFiles("/data/FLARE21/AbdomenCT-1K_training_data/scaled_masks_12organ/")), all_fnames))
 
     # setup result grids
     res = np.full(shape=(len(test_fnames), 4, 2), fill_value=np.nan)
