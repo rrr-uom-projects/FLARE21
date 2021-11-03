@@ -61,7 +61,7 @@ for pdx, fname in enumerate(tqdm(fnames)):
         else:
             exit(1)
     try:
-        assert(sitk_mask.GetDirection() == sitk_tumormask.GetDirection())
+        assert((np.round(np.array(sitk_mask.GetDirection()), 0) == np.round(np.array(sitk_tumormask.GetDirection()), 0)).all())
     except AssertionError:
         print(f"{fname} direction AssertionError")
         print(f"     mask size = {sitk_mask.GetSize()}\ntumormask size = {sitk_tumormask.GetSize()}")
@@ -72,7 +72,7 @@ for pdx, fname in enumerate(tqdm(fnames)):
         else:
             exit(1)
     try:
-        assert(sitk_mask.GetSpacing() == sitk_tumormask.GetSpacing())
+        assert((np.round(np.array(sitk_mask.GetSpacing()), 3) == np.round(np.array(sitk_tumormask.GetSpacing()), 3)).all())
     except AssertionError:
         print(f"{fname} spacing AssertionError")
         print(f"     mask size = {sitk_mask.GetSize()}\ntumormask size = {sitk_tumormask.GetSize()}")
