@@ -39,16 +39,16 @@ def main():
     global args
 
     # set directories
-    checkpoint_dir = "/data/FLARE21/models/AbdomenCT-1K_tumor/" # DIRECTORY PATH TO SETUP
-    imagedir = os.path.join(source_dir, "scaled_ims/")
-    maskdir = os.path.join(source_dir, "scaled_masks_w_tumors/")
+    checkpoint_dir = "/data/FLARE21/models/AbdomenCT-1K_12organ/" # DIRECTORY PATH TO SETUP
+    imagedir = os.path.join(source_dir, "scaled_12_organ_ims/")
+    maskdir = os.path.join(source_dir, "scaled_12_organ_masks/")
 
     # Create main logger
     logger = get_logger('COBRA_Training')
 
     # Create the model
-    # labels: 0 - air, 1 - body, 2 - liver, 3 - kidneys, 4 - spleen, 5 - pancreas, 6 - tumours
-    n_classes = 7
+    # labels: 0 - air, 1- Body, 2 - Liver, 3 - Kidneys, 4 - Spleen, 5 - Pancreas, 6 - Aorta, 7 - Inf vena cava, 8 - Stomach, 9 - Gallbladder, 10 - Esophagus, 11 - R adrenal gland, 12 - L adrenal gland, 13 - Celiac trunk
+    n_classes = 14
     model = nano_segmenter(n_classes=n_classes, in_channels=2, p_drop=0)
 
     for param in model.parameters():
@@ -71,7 +71,7 @@ def main():
     print(len(train_inds), len(val_inds))
 
     # get label frequencies for weighted loss fns
-    label_freq = np.load(os.path.join(source_dir, "label_freq_w_tumors.npy"))
+    label_freq = np.load(os.path.join(source_dir, "label_freq_12organ.npy"))
 
     # Create them dataloaders
     train_data = segmenter_dataset(imagedir=imagedir, maskdir=maskdir, image_inds=train_inds, n_classes=n_classes, shift_augment=True, rotate_augment=True, scale_augment=True, flip_augment=False)
