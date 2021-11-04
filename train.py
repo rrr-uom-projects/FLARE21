@@ -29,7 +29,6 @@ input_size = (96,192,192)
 
 def setup_argparse():
     parser = ap.ArgumentParser(prog="Main training program for MCR_RRR's FLARE21 submission - \"COBRA\"")
-    parser.add_argument("--fold_num", choices=[1,2,3,4,5], type=int, help="The fold number for the kfold cross validation")
     global args
     args = parser.parse_args()
 
