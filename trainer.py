@@ -18,7 +18,7 @@ from scipy.ndimage import center_of_mass
 ############################################ loss fns ###############################################
 #####################################################################################################
 
-def multiclass_simple_dice_loss(prediction, mask, ignore_index, label_freq, useWeights=True):
+def multiclass_simple_dice_loss(prediction, mask, label_freq, useWeights=True):
     # prediction is (B,C,H,W,D)
     # target_mask NEEDS to be one-hot encoded [(B,C,H,W,D) <-- one-hot encoded]
     # Use weights for highly unbalanced classes
@@ -31,20 +31,6 @@ def multiclass_simple_dice_loss(prediction, mask, ignore_index, label_freq, useW
     smooth = 1.
     loss = 0.
     dice_pred = F.softmax(prediction, dim=1)
-    
-    '''
-    # This bit is meant to deal with missing labels in the gold standard
-    # I'm not sure it's working terribly well, so I've removed it for now --Ed
-    if (ignore_index==False).any():
-        # we are missing gold standard masks for some structures
-        # change all predicted pixels of the missing structure to background -> 0
-        # that way the loss will be 0 in regions of missing gold standard labels
-        ablation_mask = torch.zeros_like(dice_pred, dtype=bool)
-        missing_inds = torch.where(~ignore_index)
-        for imdx, sdx in zip(missing_inds[0], missing_inds[1]):
-            ablation_mask[imdx, sdx+2] = True
-        dice_pred = dice_pred.masked_fill(ablation_mask, 1)
-    '''
     
     for c in range(num_classes):
         pred_flat = dice_pred[:,c].reshape(-1)
@@ -130,17 +116,13 @@ class segmenter_trainer:
             self.logger.info(f'Training iteration {self.num_iterations}. Batch {batch_idx + 1}. Epoch [{self.num_epoch + 1}/{self.max_num_epochs}]')
             ct_im = sample['ct_im'].type(torch.HalfTensor)
             mask = sample['mask'].type(torch.HalfTensor)
-            ignore_index = sample['ignore_index']
-            spacing = sample['spacing']
 
             # send tensors to GPU
             ct_im = ct_im.to(self.device)
             mask = mask.to(self.device)
-            ignore_index = ignore_index.to(self.device)
-            spacing = spacing.to(self.device)
 
             # forward
-            output, loss = self._forward_pass(ct_im, mask, ignore_index, spacing)
+            output, loss = self._forward_pass(ct_im, mask)
             train_losses.update(loss.item(), self._batch_size(ct_im))
             
             # compute gradients and update parameters
@@ -202,19 +184,15 @@ class segmenter_trainer:
                 self.logger.info(f'Validation iteration {batch_idx + 1}')
                 ct_im = sample['ct_im'].type(torch.HalfTensor)
                 mask = sample['mask'].type(torch.HalfTensor)
-                ignore_index = sample['ignore_index']
-                spacing = sample['spacing']
                 
                 # send tensors to GPU
                 ct_im = ct_im.to(self.device)
                 mask = mask.to(self.device)
-                ignore_index = ignore_index.to(self.device)
-                spacing = spacing.to(self.device)
 
-                output, loss = self._forward_pass(ct_im, mask, ignore_index, spacing)
+                output, loss = self._forward_pass(ct_im, mask)
                 val_losses.update(loss.item(), self._batch_size(ct_im))
 
-                if (batch_idx == 0) and (ignore_index==True).all() and ((self.num_epoch < 50) or (self.num_epoch < 100 and not self.num_epoch%5) or (self.num_epoch < 500 and not self.num_epoch%25) or (not self.num_epoch%100)):                   
+                if (batch_idx == 0) and ((self.num_epoch < 50) or (self.num_epoch < 100 and not self.num_epoch%5) or (self.num_epoch < 500 and not self.num_epoch%25) or (not self.num_epoch%100)):                   
                     # transferring between the gpu and cpu with .cpu() is really inefficient
                     # -> only transfer slices for plotting not entire volumes (& only plot every so often ... ^ what this mess up here is doing)
                     # plot ims -> - $tensorboard --logdir=MODEL_DIRECTORY --port=6006 --bind_all --samples_per_plugin="images=0"
@@ -280,12 +258,12 @@ class segmenter_trainer:
             self.logger.info(f'Validation finished. Loss: {val_losses.avg}')
             return val_losses.avg
 
-    def _forward_pass(self, ct_im, mask, ignore_index, spacing):
+    def _forward_pass(self, ct_im, mask):
         with torch.cuda.amp.autocast():
             # forward pass
             output = self.model(ct_im)
             # use a simple multi-class weighted soft dice loss
-            dsc_loss = multiclass_simple_dice_loss(output, mask, ignore_index, self.label_freq)
+            dsc_loss = multiclass_simple_dice_loss(output, mask, self.label_freq)
             return output, dsc_loss
 
     def find_coords(self, mask, sdx):

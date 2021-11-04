@@ -106,16 +106,13 @@ class segmenter_dataset(data.Dataset):
         self.flips = flip_augment
         self.rotations = rotate_augment
         self.scaling = scale_augment
-        self.ignore_oars = np.load(os.path.join(source_dir, "labels_present.npy"))
 
     def __getitem__(self, idx):
         if torch.is_tensor(idx):
            idx = idx.tolist()
         imageToUse = self.availableImages[idx]
-        spacing = np.load(os.path.join(source_dir, "spacings_scaled.npy"))[idx][[2,0,1]]
         ct_im = np.load(os.path.join(self.imagedir, imageToUse))
         mask = np.load(os.path.join(self.maskdir, imageToUse))
-        ignore_index = self.ignore_oars[self.image_inds[idx]]
 
         # Augmentations
         if self.shifts:
@@ -140,7 +137,6 @@ class segmenter_dataset(data.Dataset):
             scale_factor = np.clip(np.random.normal(loc=1.0,scale=0.05), 0.8, 1.2)
             ct_im = self.scale(ct_im, scale_factor, is_mask=False)
             mask = self.scale(mask, scale_factor, is_mask=True)
-            spacing /= scale_factor
         
         if self.flips:
             raise NotImplementedError # LR flips shouldn't be applied I don't think
@@ -155,7 +151,7 @@ class segmenter_dataset(data.Dataset):
         mask = np.transpose(mask, axes=(3,0,1,2))
 
         # send it
-        return {'ct_im': ct_im3, 'mask': mask, 'ignore_index': ignore_index, 'spacing': spacing}
+        return {'ct_im': ct_im3, 'mask': mask}
         
     def __len__(self):
         return len(self.availableImages)
