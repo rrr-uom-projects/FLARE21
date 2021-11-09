@@ -3,6 +3,7 @@ import numpy as np
 from scipy import ndimage
 import os
 import time
+from tqdm import tqdm
 import SimpleITK as sitk
 from skimage.transform import resize
 
@@ -10,7 +11,7 @@ from models import nano_segmenter
 from utils import get_logger, getFiles, windowLevelNormalize
 import archive.roughSeg.deepmind_metrics as deepmind_metrics
 
-nii_source_dir = "/data/AbdomenCT-1K/"
+nii_source_dir = "/data/FLARE_datasets/AbdomenCT-1K/"
 npy_source_dir = "/data/FLARE21/AbdomenCT-1K_training_data/"
 image_dir = "/data/FLARE21/AbdomenCT-1K_training_data/scaled_ims/"
 mask_dir = "/data/FLARE21/AbdomenCT-1K_training_data/scaled_masks/"
@@ -61,7 +62,7 @@ def main():
     res = np.full(shape=(len(test_fnames), 4, 2), fill_value=np.nan)
 
     # iterate over each testing image
-    for pat_idx, test_fname in enumerate(test_fnames):
+    for pat_idx, test_fname in enumerate(tqdm(test_fnames)):
         # load image and normalise
         t = time.time()
         sitk_image = sitk.ReadImage(os.path.join(nii_source_dir, "Image", test_fname.replace('.npy','_0000.nii.gz')))
@@ -75,10 +76,10 @@ def main():
             ct_im = np.flip(ct_im, axis=0).copy()
             gold_mask = np.flip(gold_mask, axis=2).copy() 
             ct_im = np.flip(ct_im, axis=2).copy()
-        logger.info(f"Image loading took {time.time()-t:.4f} seconds")
+        #logger.info(f"Image loading took {time.time()-t:.4f} seconds")
         t = time.time()
         ct_im = resize(ct_im, output_shape=input_size, order=3, anti_aliasing=True, preserve_range=True)
-        logger.info(f"Image downsampling took {time.time()-t:.4f} seconds")
+        #logger.info(f"Image downsampling took {time.time()-t:.4f} seconds")
         # preprocessing
         ct_im = np.clip(ct_im, -1024, 2000)
         #ct_im = windowLevelNormalize(ct_im, level=50, window=400)[np.newaxis, np.newaxis] # add dummy batch and channels axes
@@ -89,7 +90,7 @@ def main():
         # run forward pass
         t = time.time()
         prediction = model(torch.tensor(ct_im, dtype=torch.float).to('cuda'))
-        logger.info(f"{test_fname} inference took {time.time()-t:.4f} seconds")
+        #logger.info(f"{test_fname} inference took {time.time()-t:.4f} seconds")
         # change prediction from one-hot to mask and move back to cpu for metric calculation
         prediction = torch.squeeze(prediction)
         prediction = torch.argmax(prediction, dim=0)
@@ -100,7 +101,7 @@ def main():
         # rescale the prediction to match the full-resolution mask
         t = time.time()
         prediction = np.round(resize(prediction, output_shape=gold_mask.shape, order=0, anti_aliasing=False, preserve_range=True)).astype(np.uint8)
-        logger.info(f"Image upsampling took {time.time()-t:.4f} seconds")
+        #logger.info(f"Image upsampling took {time.time()-t:.4f} seconds")
         # save output
         try:
             os.mkdir(os.path.join(output_dir, "full_res_test_segs/"))
@@ -109,7 +110,6 @@ def main():
         np.save(os.path.join(output_dir, "full_res_test_segs/", 'pred_'+test_fname), prediction)
         # get spacing for this image
         spacing = np.array(sitk_mask.GetSpacing())[[2,0,1]]
-        print(spacing)
         t = time.time()
         # get present labels
         test_ind = np.argwhere(np.array(test_fname)==np.array(all_fnames))[0,0]
@@ -119,7 +119,7 @@ def main():
         for organ_idx, organ_num in enumerate(range(first_oar_idx, gold_mask.max()+1)):
             # check if label present in gs, skip if not
             if not labels_present[organ_idx]:
-                logger.info(f"{test_fname} missing {organs[organ_idx]}, skipping...")
+                #logger.info(f"{test_fname} missing {organs[organ_idx]}, skipping...")
                 continue
             # Need to binarise the masks for the metric computation
             gs = (gold_mask==organ_num).astype(int)
@@ -140,7 +140,7 @@ def main():
             # store result
             res[pat_idx, organ_idx, 0] = dice(gs, pred)
             res[pat_idx, organ_idx, 1] = surface_DSC
-        logger.info(f"Seg processing took {time.time()-t:.4f} seconds")
+        #logger.info(f"Seg processing took {time.time()-t:.4f} seconds")
 
     # save results
     np.save(os.path.join(output_dir, "full_res_results_grid.npy"), res)
