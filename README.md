@@ -40,21 +40,25 @@ This script operates end-to-end, reading .nii.gz format CTs and writing .nii.gz 
 
 <h2> Extended datasets </h2>
 We additionally trained our model with three datasets availbale here: https://github.com/JunMa11/AbdomenCT-1K
-For each of these new datasets we retain identical model setup and training hyperparameters (this may not be ideal!)
+
+  For each of these new datasets we retain identical model setup and training hyperparameters (this may not be ideal!)
 <h3> AbdomenCT-1K </h3>
 docker link: https://hub.docker.com/repository/docker/afgreen/rrr_mcr_abdomenct_1k
-results (tested on 200 scans reserved from the full dataset):
+
+  results (tested on 200 scans reserved from the full dataset):
 
   ![AbdomenCT_1K_retrain_results](https://user-images.githubusercontent.com/35701423/141323286-ab565e06-2f5f-45cc-bb9d-7aa63653ad0a.png)
 
 <h3> AbdomenCT-1K with pseudo tumor labels </h3>
 docker link: https://hub.docker.com/repository/docker/afgreen/rrr_mcr_abdomenct_1k_tumor
-results (tested on the 285 scans without pseudo-tumor labels):
+
+  results (tested on the 285 scans without pseudo-tumor labels):
 
   ![AbdomenCT_1K_tumor_retrain_results](https://user-images.githubusercontent.com/35701423/141324093-4f3252af-794f-46f5-8525-25128d3b44ff.png)
   
 <h3> AbdomenCT-1K - 50 cases with 12 annotated organs </h3>
 docker link: https://hub.docker.com/repository/docker/afgreen/rrr_mcr_abdomenct_1k_12organ
-results (tested on the 959 scans without all 12 organs labelled):
+
+  results (tested on the 959 scans without all 12 organs labelled):
   
   ![AbdomenCT_1K_12organ_retrain_results](https://user-images.githubusercontent.com/35701423/141324114-74595111-caf2-4569-ac13-ae976eba7ea2.png)
