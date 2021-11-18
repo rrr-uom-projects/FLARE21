@@ -59,6 +59,7 @@ def export():
     x = torch.randn(1, 2, 96, 192, 192, requires_grad=True, dtype=torch.float32) #! B x C x H x W x D
     #output = model(x, *out_size)
     output = model(x)
+    benchmark_pytorch(args.weights)
     print(output.shape)
     #TODO Optimise model https://www.onnxruntime.ai/docs/resources/graph-optimizations.html#python-api-example
     torch.onnx.export(model, 
@@ -104,6 +105,7 @@ def export():
     print('benchmarking fp32 model...')
     benchmark(args.output + '.onnx')
 
+    
     # print('benchmarking int8 model...')
     # benchmark(args.output + '.quant.onnx')
 
@@ -206,7 +208,27 @@ def benchmark(model_path):
         print(f"{end:.2f}ms")
     total /= runs
     print(f"Avg: {total:.2f}ms")
+#
+def benchmark_pytorch(model_path):
+    model = nano_segmenter(n_classes=6, in_channels=2, p_drop=0)
 
+    #* Load trained model
+    # * Will default to GPU if detected + defaults to best_checkpoint.pytorch in weights directory
+    model.load_best(args.weights)
+    model.eval()
+    x = torch.randn(1, 2, 96, 192, 192, requires_grad=True,
+                    dtype=torch.float32)
+    runs=10
+    total = 0.0
+    print('Pytorch benchmark')
+    for i in range(runs):
+        start = time.perf_counter()
+        output = model(x)
+        end = (time.perf_counter() - start) * 1000
+        total += end
+        print(f"{end:.2f}ms")
+    total /= runs
+    print(f"Avg: {total:.2f}ms")
 
 if __name__ =='__main__':
     export()
