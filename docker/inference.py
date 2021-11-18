@@ -26,8 +26,6 @@ window_1 = 100
 minval_1 = level_1 - window_1//2
 maxval_1 = level_1 + window_1//2
 
-model_path = "./rrr-models/compiled_model_nano.onnx"
-
 class InferenceRecord:
     """
     Class to store a record of something that is being inferenced on
@@ -135,7 +133,7 @@ def load_nifty(path):
                             filename)
 
 
-def get_onnx_session():
+def get_onnx_session(model_path):
     """
     Load the ONNX model and return an onnxruntime with the correct
     session options set
@@ -265,7 +263,7 @@ def main(args):
 
     ## Load model
 
-    inference_session = get_onnx_session()
+    inference_session = get_onnx_session(args.model_path)
 
     ## run inference
     start_inf = time.time()
@@ -304,6 +302,7 @@ if __name__ == "__main__":
     parser = ap.ArgumentParser()
     parser.add_argument("input_dir", help="Directory containing images to segment")
     parser.add_argument("output_dir", help="Directory in which to put the output")
+    parser.add_argument("--model_path", default="./rrr-models/compiled_model_nano.onnx", help="Specify a different model, if needed")
 
     args = parser.parse_args()
     main(args)

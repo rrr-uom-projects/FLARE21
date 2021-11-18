@@ -6,7 +6,7 @@ import torch.nn.functional as F
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-import roughSeg.utils as utils
+import utils as utils
 import time
 from scipy.ndimage import center_of_mass
 

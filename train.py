@@ -1,3 +1,14 @@
+## train.py
+# 1. IMPORTANT: first use train_preprocessing.py to format data for training
+#               this script reads in .npy format training data
+#
+# 2. Setup up the required directory paths (highlighted on lines 25 and 40):
+#                "source_dir" is the directory containing the preprocessed image and masks
+#                "checkpoint_dir" is the directory to save the model weights and training statistics for visualisation with tensorboard
+#
+# 3. Train!:    use   $ python train.py --fold_num i
+#               or    $ sh train_multi_folds.sh
+
 import torch
 import torch.optim as optim
 from torch.optim.lr_scheduler import ReduceLROnPlateau
@@ -9,22 +20,16 @@ import random
 import os
 import argparse as ap
 
-from models import yolo_transpose_plusplus, tiny_segmenter, tiny_attention_segmenter, nano_segmenter, pico_segmenter
-# light_segmenter, yolo_segmenter, bottleneck_yolo_segmenter, asymmetric_yolo_segmenter, asym_bottleneck_yolo_segmenter, 
-# bridged_yolo_segmenter, yolo_transpose, ytp_learnableWL 
+from models import nano_segmenter
 from trainer import segmenter_trainer
-from roughSeg.utils import k_fold_split_train_val_test, get_logger, get_number_of_learnable_parameters, getFiles, windowLevelNormalize
+from utils import k_fold_split_train_val_test, get_logger, get_number_of_learnable_parameters, getFiles, windowLevelNormalize
 
-source_dir = "/data/FLARE21/training_data_192_sameKidneys/"
+source_dir = "/data/FLARE21/training_data_192_sameKidneys/" # DIRECTORY PATH TO SETUP -> this should be the same as "out_dir" in train_preprocessing.py
 input_size = (96,192,192)
 
-# For asymmetric, change BS     3 -> 2
-#                        lr 0.005 -> 0.001 
-
 def setup_argparse():
-    parser = ap.ArgumentParser(prog="Main training program for 3D location-finding network \"headhunter\"")
+    parser = ap.ArgumentParser(prog="Main training program for MCR_RRR's FLARE21 submission - \"COBRA\"")
     parser.add_argument("--fold_num", choices=[1,2,3,4,5], type=int, help="The fold number for the kfold cross validation")
-    parser.add_argument("--GPUs", choices=[1,2], type=int, default=1, help="Number of GPUs to use")
     global args
     args = parser.parse_args()
 
@@ -34,16 +39,17 @@ def main():
     global args
 
     # set directories
-    checkpoint_dir = "/data/FLARE21/models/full_runs/pico_segmenter_192/fold"+str(args.fold_num)
+    checkpoint_dir = "/data/FLARE21/models/testing_runs/nano_segmenter_192/fold"+str(args.fold_num) # DIRECTORY PATH TO SETUP
     imagedir = os.path.join(source_dir, "scaled_ims/")
     maskdir = os.path.join(source_dir, "scaled_masks/")
 
     # Create main logger
-    logger = get_logger('organHunter_Training')
+    logger = get_logger('COBRA_Training')
 
     # Create the model
+    # labels: 0 - air, 1 - body, 2 - liver, 3 - kidneys, 4 - spleen, 5 - pancreas
     n_classes = 6
-    model = pico_segmenter(n_classes=n_classes, in_channels=1, p_drop=0)
+    model = nano_segmenter(n_classes=n_classes, in_channels=2, p_drop=0)
 
     for param in model.parameters():
         param.requires_grad = True
@@ -54,8 +60,8 @@ def main():
 
     # Log the number of learnable parameters
     logger.info(f'Number of learnable params {get_number_of_learnable_parameters(model)}')
-    train_BS = int(6) # change 3->2 for asymmetric
-    val_BS = int(6)
+    train_BS = int(4)
+    val_BS = int(4)
     train_workers = int(4)
     val_workers = int(4)
 
@@ -67,13 +73,13 @@ def main():
     label_freq = np.load(os.path.join(source_dir, "label_freq.npy"))
 
     # Create them dataloaders
-    train_data = segmenter_Dataset(imagedir=imagedir, maskdir=maskdir, image_inds=train_inds, n_classes=n_classes, shift_augment=True, rotate_augment=True, scale_augment=True, flip_augment=False)
+    train_data = segmenter_dataset(imagedir=imagedir, maskdir=maskdir, image_inds=train_inds, n_classes=n_classes, shift_augment=True, rotate_augment=True, scale_augment=True, flip_augment=False)
     train_loader = DataLoader(dataset=train_data, batch_size=train_BS, shuffle=True, pin_memory=False, num_workers=train_workers, worker_init_fn=lambda _: np.random.seed(int(torch.initial_seed())%(2**32-1)))
-    val_data = segmenter_Dataset(imagedir=imagedir, maskdir=maskdir, image_inds=val_inds, n_classes=n_classes, shift_augment=False, rotate_augment=False, scale_augment=False, flip_augment=False)
+    val_data = segmenter_dataset(imagedir=imagedir, maskdir=maskdir, image_inds=val_inds, n_classes=n_classes, shift_augment=False, rotate_augment=False, scale_augment=False, flip_augment=False)
     val_loader = DataLoader(dataset=val_data, batch_size=val_BS, shuffle=True, pin_memory=False, num_workers=val_workers, worker_init_fn=lambda _: np.random.seed(int(torch.initial_seed())%(2**32-1)))
 
     # Create the optimizer
-    optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr = 0.005) # change 0.005->0.001 for asymmetric
+    optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr = 0.001)
 
     # Create learning rate adjustment strategy
     lr_scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=75, verbose=True)
@@ -88,7 +94,7 @@ def main():
     # Romeo Dunn
     return
     
-class segmenter_Dataset(data.Dataset):
+class segmenter_dataset(data.Dataset):
     def __init__(self, imagedir, maskdir, image_inds, n_classes, shift_augment=True, rotate_augment=True, scale_augment=True, flip_augment=False):
         self.imagedir = imagedir
         self.maskdir = maskdir
@@ -123,7 +129,7 @@ class segmenter_Dataset(data.Dataset):
             mask = mask[mx_x+cc_shift:input_size[0]+mx_x+cc_shift, mx_yz+ap_shift:input_size[1]+mx_yz+ap_shift, mx_yz+lr_shift:input_size[2]+mx_yz+lr_shift]
 
         if self.rotations and random.random()<0.5:
-            # taking implementation from 3DSegmentationNetwork which can be applied -> rotations in the axial plane only I should think? -10->10 degrees?
+            # taking implementation from my 3DSegmentationNetwork which can be applied -> rotations in the axial plane only I should think? -10->10 degrees?
             roll_angle = np.clip(np.random.normal(loc=0,scale=3), -10, 10)
             ct_im = self.rotation(ct_im, roll_angle, rotation_plane=(1,2), is_mask=False)
             mask = self.rotation(mask, roll_angle, rotation_plane=(1,2), is_mask=True)
@@ -139,28 +145,16 @@ class segmenter_Dataset(data.Dataset):
             raise NotImplementedError # LR flips shouldn't be applied I don't think
     
         # perform window-levelling here, create 3 channels
-        level = (-1 * np.absolute(np.random.normal(loc=50, scale=7.5) - 50)) + 50
-        window = np.random.normal(loc=400, scale=10)
-        ct_im = windowLevelNormalize(ct_im, level=level, window=window)[np.newaxis]
-        '''
-        if self.contrastAugs:
-            level = (-1 * np.absolute(np.random.normal(loc=50, scale=7.5) - 50)) + 50
-            window = np.random.normal(loc=400, scale=10)
-            ct_im = windowLevelNormalize(ct_im, level=level, window=window)
-        else:
-            ct_im3 = np.zeros(shape=(2,) + ct_im.shape)
-            ct_im3[0] = windowLevelNormalize(ct_im, level=50, window=400)   # abdomen "soft tissues"
-            ct_im3[1] = windowLevelNormalize(ct_im, level=60, window=100)   # pancreas
-        '''
-        # start with a single soft tissue channel
-        #ct_im = windowLevelNormalize(ct_im, level=50, window=400)[np.newaxis]   # abdomen "soft tissues"
+        ct_im3 = np.zeros(shape=(2,) + ct_im.shape)
+        ct_im3[0] = windowLevelNormalize(ct_im, level=50, window=400)   # abdomen "soft tissues"
+        ct_im3[1] = windowLevelNormalize(ct_im, level=60, window=100)   # pancreas
         
         # use one-hot masks
         mask = (np.arange(self.n_classes) == mask[...,None]).astype(int)
         mask = np.transpose(mask, axes=(3,0,1,2))
 
         # send it
-        return {'ct_im': ct_im, 'mask': mask, 'ignore_index': ignore_index, 'spacing': spacing}
+        return {'ct_im': ct_im3, 'mask': mask, 'ignore_index': ignore_index, 'spacing': spacing}
         
     def __len__(self):
         return len(self.availableImages)

@@ -12,7 +12,7 @@ from model_archive import yolo_segmenter
 from models import superres_segmenter, fullRes_segmenter, yolo_transpose_plusplus, tiny_segmenter, tiny_inference_segmenter, tiny_attention_segmenter, nano_segmenter
 # light_segmenter, bottleneck_yolo_segmenter, asymmetric_yolo_segmenter, asym_bottleneck_yolo_segmenter, 
 # bridged_yolo_segmenter, yolo_transpose, yolo_transpose_plusplus, ytp_learnableWL
-from roughSeg.utils import k_fold_split_train_val_test, get_logger, getFiles, windowLevelNormalize
+from utils import k_fold_split_train_val_test, get_logger, getFiles, windowLevelNormalize
 import roughSeg.deepmind_metrics as deepmind_metrics
 
 source_dir = "/data/FLARE21/training_data_192_sameKidneys/"

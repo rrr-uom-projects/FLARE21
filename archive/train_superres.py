@@ -13,7 +13,7 @@ from models import superres_segmenter, fullRes_segmenter
 # light_segmenter, yolo_segmenter, bottleneck_yolo_segmenter, asymmetric_yolo_segmenter, asym_bottleneck_yolo_segmenter, 
 # bridged_yolo_segmenter, yolo_transpose, yolo_transpose_plusplus, ytp_learnableWL 
 from trainer import segmenter_trainer
-from roughSeg.utils import k_fold_split_train_val_test, get_logger, get_number_of_learnable_parameters, getFiles, windowLevelNormalize
+from utils import k_fold_split_train_val_test, get_logger, get_number_of_learnable_parameters, getFiles, windowLevelNormalize
 
 source_dir = "/data/FLARE21/training_data_512/"
 mask_dir = "/data/FLARE21/training_data_512/"

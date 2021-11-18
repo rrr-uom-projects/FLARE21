@@ -1,3 +1,7 @@
+## trainer.py
+# The segmenter_trainer class runs the main training loop
+# the weighted multiclass soft Dice loss fn is implemented here too
+
 import os
 import torch
 import numpy as np
@@ -6,10 +10,9 @@ import torch.nn.functional as F
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-import roughSeg.utils as utils
+import utils as utils
 import time
 from scipy.ndimage import center_of_mass
-from roughSeg.deepmind_metrics import compute_surface_distances, compute_surface_dice_at_tolerance
 
 #####################################################################################################
 ############################################ loss fns ###############################################
@@ -30,6 +33,8 @@ def multiclass_simple_dice_loss(prediction, mask, ignore_index, label_freq, useW
     dice_pred = F.softmax(prediction, dim=1)
     
     '''
+    # This bit is meant to deal with missing labels in the gold standard
+    # I'm not sure it's working terribly well, so I've removed it for now --Ed
     if (ignore_index==False).any():
         # we are missing gold standard masks for some structures
         # change all predicted pixels of the missing structure to background -> 0
@@ -54,77 +59,6 @@ def multiclass_simple_dice_loss(prediction, mask, ignore_index, label_freq, useW
         loss += w * (1 - (num / denom))
     return loss
 
-def surface_dsc(prediction, mask, ignore_index, spacing):
-    # WARNING - this implementation is very slow! surface dice is calculated on the cpu and not vectorised for the batch dimension
-    # convert to masks
-    prediction = torch.argmax(prediction, dim=1).cpu().numpy().astype(int)
-    target_mask = torch.argmax(mask, dim=1).cpu().numpy().astype(int)
-    # loop over oars
-    loss = 0.
-    for organ_idx in range(2,7):
-        gs = np.zeros(shape = target_mask.shape)
-        pred = np.zeros(shape = prediction.shape)
-        gs[(target_mask == organ_idx)] = 1
-        pred[(prediction == organ_idx)] = 1
-        for batch_idx in range(pred.shape[0]):
-            if ignore_index[batch_idx, organ_idx-2] == False:
-                continue
-            # compute the surface distances
-            surface_distances = compute_surface_distances(gs[batch_idx].astype(bool), pred[batch_idx].astype(bool), spacing[batch_idx])
-            # calculate the surface dsc
-            loss += (1/5) * (1 - compute_surface_dice_at_tolerance(surface_distances, tolerance_mm=5.))
-    # normalise for batch size
-    loss /= pred.shape[0]
-    return loss
-
-def exp_log_loss(prediction, mask, ignore_index, label_freq, device='cuda'):
-    """
-    paper: 3D Segmentation with Exponential Logarithmic Loss for Highly Unbalanced Object Sizes
-    https://arxiv.org/pdf/1809.00076.pdf
-    
-    ### ! needs raw scores from the network ! ###
-    """
-    gamma = 0.3
-    # Dice loss
-    num_classes = prediction.size()[1]
-    smooth = 1.
-    dice_pred = F.softmax(prediction, dim=1)
-    if (ignore_index==False).any():
-        # we are missing gold standard masks for some structures
-        # change all predicted pixels of the missing structure to background -> 0
-        # that way the loss will be 0 in regions of missing gold standard labels
-        ablation_mask = torch.zeros_like(dice_pred, dtype=bool)
-        missing_inds = torch.where(~ignore_index)
-        for imdx, sdx in zip(missing_inds[0], missing_inds[1]):
-            ablation_mask[imdx, sdx+1] = True
-        dice_pred = dice_pred.masked_fill(ablation_mask, 0)
-
-    pred_flat = dice_pred.view(-1, num_classes)
-    mask_flat = mask.view(-1, num_classes)
-    intersection = (pred_flat*mask_flat).sum(dim=0)
-    # numerator
-    num = 2. * intersection + smooth
-    # denominator
-    denom = pred_flat.sum(dim=0) + mask_flat.sum(dim=0) + smooth        
-    # calculate dice
-    dice = num / denom
-    dice_loss = torch.mean(torch.pow(torch.clamp(-torch.log(dice), min=1e-6), gamma))
-
-    # XE loss    
-    class_weights = np.power(np.full((num_classes), label_freq.sum()) / label_freq, 0.5)
-    xe_pred = F.log_softmax(prediction, dim=1)
-    if (ignore_index==False).any():
-        # same again - missing inds retained from above
-        ablation_mask = torch.zeros_like(xe_pred, dtype=bool)
-        for imdx, sdx in zip(missing_inds[0], missing_inds[1]):
-            ablation_mask[imdx, sdx+1] = True
-        xe_pred = xe_pred.masked_fill(ablation_mask, 0)
-    mask = torch.argmax(mask, dim=1)
-    xe_loss = torch.mean(torch.pow(torch.clamp(torch.nn.NLLLoss(weight=torch.FloatTensor(class_weights).to(device), reduction='none')(xe_pred, mask), min=1e-6), gamma))
-
-    w_dice = 0.5
-    w_xe = 0.5
-    return (w_dice*dice_loss) + (w_xe*xe_loss)
 
 #####################################################################################################
 ############################################ trainer ################################################
@@ -333,7 +267,7 @@ class segmenter_trainer:
                     sdx = 5
                     coords = self.find_coords(mask, sdx)
                     fig4, (ax9, ax10, ax11) = plt.subplots(1, 3, figsize=(15, 5), tight_layout=True)
-                    ax_slice = ct_im[which_to_show, 0, coords[0]].cpu().numpy().astype(float)             # <-- batch_num, contrast_channel, ax_slice
+                    ax_slice = ct_im[which_to_show, 1, coords[0]].cpu().numpy().astype(float)             # <-- batch_num, contrast_channel, ax_slice
                     ax9.imshow(np.rot90(ax_slice, 2), aspect=1.0, cmap='Greys_r')
                     ax_slice = mask[coords[0]].astype(float)
                     ax10.imshow(np.rot90(ax_slice, 2), aspect=1.0, cmap='nipy_spectral', vmin=0, vmax=6)
@@ -350,20 +284,11 @@ class segmenter_trainer:
         with torch.cuda.amp.autocast():
             # forward pass
             output = self.model(ct_im)
-            # use exp_log_loss
-            #loss = exp_log_loss(output, mask, ignore_index, self.label_freq) # this is worse for this task
-            # or use simpler multi-class weighted dice loss
+            # use a simple multi-class weighted soft dice loss
             dsc_loss = multiclass_simple_dice_loss(output, mask, ignore_index, self.label_freq)
-            # add surface_dice term?
-            #surface_dsc_loss = surface_dsc(output, mask, ignore_index, spacing)
-            # summation
-            #loss = (dsc_loss + surface_dsc_loss) / 2
             return output, dsc_loss
 
-    def find_coords(self, mask, sdx, sdx2=None):
-        #if sdx2:
-            #coords = center_of_mass(np.logical_or(mask == sdx, mask == sdx2))
-        #else:
+    def find_coords(self, mask, sdx):
         coords = center_of_mass(mask == sdx)
         return np.round(coords).astype(int)
 
